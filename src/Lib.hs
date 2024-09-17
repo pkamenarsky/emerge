@@ -19,7 +19,7 @@ data ViewIndex
 -- events alter the structure
 -- signals govern shader uniforms
 
-data Event a
+data Event a = Event (IO (Maybe a))
 
 data SynF v next
   = View v next
@@ -52,3 +52,22 @@ and a b = Syn $ liftF $ And a b id
 
 --------------------------------------------------------------------------------
 
+data SynR v a = P a | V v | B
+
+unblock :: Monoid v => Syn v a -> IO (SynR v a)
+unblock (Syn (Pure a)) = pure $ P a
+unblock (Syn (Free (On (Event ref) next))) = do
+  a <- ref
+  case a of
+    Nothing -> pure B
+    Just a' -> unblock $ Syn $ next a'
+unblock (Syn (Free (Or a b next))) = do
+  a' <- unblock a
+  b' <- unblock b
+  case (a', b') of
+    (P r, _) -> unblock $ do
+      _ <- view mempty
+      Syn $ next r
+    (_, P r) -> unblock $ do
+      _ <- view mempty
+      Syn $ next r
