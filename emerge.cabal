@@ -25,7 +25,7 @@ source-repository head
 
 library
   exposed-modules:
-      Lib
+      Syn
   other-modules:
       Paths_emerge
   autogen-modules:
