@@ -52,14 +52,18 @@ and a b = Syn $ liftF $ And a b id
 
 --------------------------------------------------------------------------------
 
-data SynR v a = P a | V v | B
+data SynR v a
+  = P a            -- pure
+  | V v (Syn v a)  -- view
+  | B (Syn v a)    -- blocked
+  | S              -- stop
 
 unblock :: Monoid v => Syn v a -> IO (SynR v a)
 unblock (Syn (Pure a)) = pure $ P a
-unblock (Syn (Free (On (Event ref) next))) = do
+unblock s@(Syn (Free (On (Event ref) next))) = do
   a <- ref
   case a of
-    Nothing -> pure B
+    Nothing -> pure $ B s
     Just a' -> unblock $ Syn $ next a'
 unblock (Syn (Free (Or a b next))) = do
   a' <- unblock a
@@ -71,3 +75,6 @@ unblock (Syn (Free (Or a b next))) = do
     (_, P r) -> unblock $ do
       _ <- view mempty
       Syn $ next r
+    (V av' an, V bv' bn) -> pure $ V (av' <> bv') (Syn $ Free $ Or an bn next)
+    (V av' an, B bn)   -> pure $ V (av' <> undefined) (Syn $ Free $ Or an bn next)
+      
