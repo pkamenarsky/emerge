@@ -6,12 +6,15 @@
 
 module Lib where
 
+import Control.Applicative
 import Control.Concurrent
 
 import Control.Monad.Free
 
 import Data.IORef
-import Data.Foldable (for_)
+import Data.Foldable (asum, for_)
+import qualified Data.List.NonEmpty as NE
+import Data.Semigroup
 
 --------------------------------------------------------------------------------
 
@@ -45,11 +48,12 @@ view v = Syn $ do
 on :: Event a -> Syn v a
 on e = Syn $ liftF $ On e id
 
-or :: Syn v a -> Syn v a -> Syn v a
-or a b = Syn $ liftF $ Or a b id
+instance Alternative (Syn v) where
+  empty = forever
+  a <|> b = Syn $ liftF $ Or a b id
 
-and :: Monoid a => Syn v a -> Syn v a -> Syn v a
-and a b = Syn $ liftF $ And a b id
+instance Monoid a => Semigroup (Syn v a) where
+  a <> b = Syn $ liftF $ And a b id
 
 --------------------------------------------------------------------------------
 
@@ -65,7 +69,7 @@ unblock (Syn (Pure a))       = pure $ P a
 unblock (Syn (Free Forever)) = pure S
 
 unblock s@(Syn (Free (On (Event ref) next))) = readIORef ref >>= \case
-  Just r  -> unblock $ Syn $ next r
+  Just r  -> pure $ B $ unblock $ Syn $ next r
   Nothing -> pure $ B $ unblock s
 
 unblock (Syn (Free (View v next))) = pure $ V v (unblock $ Syn next)
@@ -78,8 +82,8 @@ unblock (Syn (Free (Or a b next))) = go (unblock a) (unblock b) mempty mempty
 
       case (a', b') of
         -- one finished
-        (P r, _) -> pure $ V mempty (unblock $ Syn $ next r)
-        (_, P r) -> pure $ V mempty (unblock $ Syn $ next r)
+        (P r, _) -> unblock $ Syn $ next r
+        (_, P r) -> unblock $ Syn $ next r
 
         -- both views
         (V aV aNext, V bV bNext) -> pure $ V (aV <> bV) (go aNext bNext aV bV)
@@ -110,20 +114,18 @@ unblock (Syn (Free (And a b next))) = go (unblock a) (unblock b) mempty mempty
 
       case (a', b') of
         -- both finished
-        (P aR, P bR) -> pure $ V mempty (unblock $ Syn $ next (aR <> bR))
+        (P aR, P bR) -> unblock $ Syn $ next (aR <> bR)
 
         -- both views
         (V aV aNext, V bV bNext) -> pure $ V (aV <> bV) (go aNext bNext aV bV)
 
         -- left view, remaining variants
         (V aV aNext, B bNext) -> pure $ V (aV <> bPrV) (go aNext bNext aV bPrV)
-        (V aV aNext, p@(P _)) -> pure $ V (aV <> bPrV) (go aNext (pure p) aV bPrV)
-        (V aV aNext, S)       -> pure $ V (aV <> bPrV) (go aNext (pure S) aV bPrV)
+        (V aV aNext, s)       -> pure $ V (aV <> bPrV) (go aNext (pure s) aV bPrV)
 
         -- right view, remaining variants
         (B aNext, V bV bNext)  -> pure $ V (aPrV <> bV) (go aNext bNext aPrV bV)
-        (p@(P _), V bV bNext)  -> pure $ V (aPrV <> bV) (go (pure p) bNext aPrV bV)
-        (S, V bV bNext)        -> pure $ V (aPrV <> bV) (go (pure S) bNext aPrV bV)
+        (s, V bV bNext)        -> pure $ V (aPrV <> bV) (go (pure s) bNext aPrV bV)
 
         -- both blocked
         (B aNext, B bNext) -> pure $ B $ go aNext bNext aPrV bPrV
@@ -132,16 +134,9 @@ unblock (Syn (Free (And a b next))) = go (unblock a) (unblock b) mempty mempty
         (B aNext, p@(P _)) -> pure $ B $ go aNext (pure p) aPrV bPrV
         (p@(P _), B bNext) -> pure $ B $ go (pure p) bNext aPrV bPrV
 
-        -- both stopped
-        (S, S) -> pure S
-
-        -- one stopped, the other finished
-        (S, P _) -> pure S
-        (P _, S) -> pure S
-
-        -- one stopped, the other blocked
-        (S, B bNext) -> pure $ B $ go (pure S) bNext aPrV bPrV
-        (B aNext, S) -> pure $ B $ go aNext (pure S) aPrV bPrV
+        -- stopped
+        (S, _) -> pure S
+        (_, S) -> pure S
 
 --------------------------------------------------------------------------------
 
@@ -171,3 +166,53 @@ run syn showView = do
       pure synRIO'
 
     for_ v showView
+
+--------------------------------------------------------------------------------
+
+test :: IO ()
+test = do
+  ref <- newIORef ""
+  e <- newEvent :: IO (Event ())
+  fire <- run (s1 e) (writeIORef ref)
+
+  fire e ()
+  cmp ref "AAC"
+  fire e ()
+  cmp ref "RRS"
+  fire e ()
+  cmp ref "BB"
+  fire e ()
+  cmp ref "C"
+
+  where
+    cmp ref should = do
+      is <- readIORef ref
+      if is == should
+        then putStrLn "OK"
+        else putStrLn $ "FAIL (" <> is <> " should be " <> should <> ")"
+
+    s1 e = do
+      pure ()
+      r <- sconcat $ NE.fromList [ asum [ view "A", view "A", view "C", on e >> pure "R" ], on e >> pure "R", on e >> pure "S" ]
+      _ <- asum [ view r, on e]
+      pure ()
+      pure ()
+      pure ()
+      asum
+        [ do
+            pure ()
+            pure ()
+            _ <- view "B"
+            pure ()
+        , do
+            pure ()
+            view "B"
+        , do
+            pure ()
+            _ <- on e
+            pure ()
+        ]
+      pure ()
+      pure ()
+      pure ()
+      asum [ view "C", on e ]
