@@ -24,16 +24,24 @@ newEvent = Event <$> newIORef Nothing
 --------------------------------------------------------------------------------
 
 data SynF v next
-  = View v next
+  = Forever
+  | View v next
   | forall a. On (Event a) (a -> next)
   | forall a. Or (Syn v a) (Syn v a) (a -> next)
   | forall a. Monoid a => And (Syn v a) (Syn v a) (a -> next)
-  | Forever
 
 deriving instance Functor (SynF v)
 
-newtype Syn v a = Syn (Free (SynF v) a)
+newtype Syn v a = Syn { getSyn :: Free (SynF v) a }
   deriving (Functor, Applicative, Monad)
+
+mapView :: (u -> v) -> Syn u a -> Syn v a
+mapView _ (Syn (Pure a)) = Syn $ Pure a
+mapView _ (Syn (Free Forever)) = Syn $ Free Forever
+mapView f (Syn (Free (View u next))) = Syn $ Free $ View (f u) (getSyn $ mapView f $ Syn next)
+mapView f (Syn (Free (On e next))) = Syn $ Free $ On e (fmap (getSyn . mapView f . Syn) next)
+mapView f (Syn (Free (Or a b next))) = Syn $ Free $ Or (mapView f a) (mapView f b) (fmap (getSyn . mapView f . Syn) next)
+mapView f (Syn (Free (And a b next))) = Syn $ Free $ And (mapView f a) (mapView f b) (fmap (getSyn . mapView f . Syn) next)
 
 forever :: Syn v a
 forever = Syn $ liftF Forever
