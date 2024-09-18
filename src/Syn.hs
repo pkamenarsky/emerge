@@ -4,7 +4,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE StandaloneDeriving #-}
 
-module Lib where
+module Syn where
 
 import Control.Applicative
 import Control.Concurrent
