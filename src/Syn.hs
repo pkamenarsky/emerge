@@ -26,6 +26,7 @@ newEvent = Event <$> newIORef Nothing
 data SynF v next
   = Forever
   | View v next
+  | forall a. IO (IO a) (a -> next)
   | forall a. On (Event a) (a -> next)
   | forall a. Or (Syn v a) (Syn v a) (a -> next)
   | forall a. Monoid a => And (Syn v a) (Syn v a) (a -> next)
@@ -39,6 +40,7 @@ mapView :: (u -> v) -> Syn u a -> Syn v a
 mapView _ (Syn (Pure a)) = Syn $ Pure a
 mapView _ (Syn (Free Forever)) = Syn $ Free Forever
 mapView f (Syn (Free (View u next))) = Syn $ Free $ View (f u) (getSyn $ mapView f $ Syn next)
+mapView f (Syn (Free (IO io next))) = Syn $ Free $ IO io (fmap (getSyn . mapView f . Syn) next)
 mapView f (Syn (Free (On e next))) = Syn $ Free $ On e (fmap (getSyn . mapView f . Syn) next)
 mapView f (Syn (Free (Or a b next))) = Syn $ Free $ Or (mapView f a) (mapView f b) (fmap (getSyn . mapView f . Syn) next)
 mapView f (Syn (Free (And a b next))) = Syn $ Free $ And (mapView f a) (mapView f b) (fmap (getSyn . mapView f . Syn) next)
@@ -50,6 +52,10 @@ view :: v -> Syn v a
 view v = Syn $ do
   liftF $ View v ()
   liftF Forever
+
+-- | Fireing events from here will cause a dedlock.
+unsafeNonBlockingIO :: IO a -> Syn v a
+unsafeNonBlockingIO io = Syn $ liftF $ IO io id
 
 on :: Event a -> Syn v a
 on e = Syn $ liftF $ On e id
@@ -79,6 +85,10 @@ unblock s@(Syn (Free (On (Event ref) next))) = readIORef ref >>= \case
   Nothing -> pure $ B $ unblock s
 
 unblock (Syn (Free (View v next))) = pure $ V v (unblock $ Syn next)
+
+unblock (Syn (Free (IO io next))) = do
+  r <- io
+  unblock $ Syn $ next r
 
 unblock (Syn (Free (Or a b next))) = go (unblock a) (unblock b) mempty mempty
   where
