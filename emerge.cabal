@@ -25,6 +25,7 @@ source-repository head
 
 library
   exposed-modules:
+      Render
       Syn
   other-modules:
       Paths_emerge
@@ -36,6 +37,7 @@ library
   build-depends:
       base >=4.7 && <5
     , free
+    , gl
   default-language: Haskell2010
 
 executable emerge-exe
@@ -51,6 +53,7 @@ executable emerge-exe
       base >=4.7 && <5
     , emerge
     , free
+    , gl
   default-language: Haskell2010
 
 test-suite emerge-test
@@ -67,4 +70,5 @@ test-suite emerge-test
       base >=4.7 && <5
     , emerge
     , free
+    , gl
   default-language: Haskell2010
