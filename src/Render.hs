@@ -3,6 +3,7 @@
 module Render where
 
 import Control.Applicative
+import Control.Concurrent.MVar
 
 import Foreign.Ptr
 import Foreign.Marshal.Alloc
@@ -16,13 +17,10 @@ import GHC.Int
 newtype Frame = Frame Int
   deriving (Eq, Ord)
 
-data Out = Out { render :: Frame -> IO () }
-
-instance Semigroup Out where
-  a <> b = Out $ \frame -> render a frame >> render b frame
-
-instance Monoid Out where
-  mempty = Out $ const $ pure ()
+data Out = Out
+  { render :: Frame -> IO ()
+  , destroy :: IO ()
+  }
 
 data CompositeOpts = CompositeOpts
   { mode :: Int
