@@ -80,7 +80,7 @@ data SynR v a
   = P a                  -- pure
   | V v (IO (SynR v a))  -- view
   | B (IO (SynR v a))    -- blocked
-  | forall b. F (IO ()) (IO (SynR v b)) (b -> Syn v a) -- finalizer
+  | F [IO ()] (IO (SynR v a)) -- finalizer
   | S                    -- stop
 
 unblock :: Monoid v => Syn v a -> IO (SynR v a)
@@ -98,79 +98,90 @@ unblock (Syn (Free (IO io next))) = do
   r <- io
   unblock $ Syn $ next r
 
-unblock (Syn (Free (Finalize fin s next))) = pure $ F fin (unblock s) (fmap Syn next)
-
---unblock (Syn (Free (Finalize fin s next))) = go (unblock s)
---  where
---    go syn = do
---      r <- syn
---      case r of
---        P a -> do
---          fin
---          unblock $ Syn $ next a
---        V v next' -> pure $ V v (go next')
---        B next'   -> pure $ B (go next')
---        S         -> pure S
-
-unblock (Syn (Free (Or a b next))) = go (unblock a) (unblock b) mempty mempty
+unblock (Syn (Free (Finalize fin s next))) = pure $ F [fin] (go $ unblock s)
   where
-    go aSyn bSyn aPrV bPrV = do
+    go syn = do
+      r <- syn
+      case r of
+        P a -> do
+          fin
+          pure $ F [] $ unblock $ Syn $ next a
+        V v next'  -> pure $ V v (go next')
+        B next'    -> pure $ B (go next')
+        F fs next' -> pure $ F (fin:fs) (go next')
+        S          -> pure S
+
+unblock (Syn (Free (Or a b next))) = go [] [] (unblock a) (unblock b) mempty mempty
+  where
+    go aFins bFins aSyn bSyn aPrV bPrV = do
       a' <- aSyn
       b' <- bSyn
 
       case (a', b') of
+        -- finalizers
+        (F fs next', s) -> pure $ F (fs <> bFins) $ go fs bFins next' (pure s) aPrV bPrV
+        (s, F fs next') -> pure $ F (aFins <> fs) $ go aFins fs (pure s) next' aPrV bPrV
+
         -- one finished
-        (P r, _) -> unblock $ Syn $ next r
-        (_, P r) -> unblock $ Syn $ next r
+        (P r, _) -> do
+          sequence_ bFins
+          pure $ F [] $ unblock $ Syn $ next r
+        (_, P r) -> do
+          sequence_ aFins
+          pure $ F [] $ unblock $ Syn $ next r
 
         -- both views
-        (V aV aNext, V bV bNext) -> pure $ V (aV <> bV) (go aNext bNext aV bV)
+        (V aV aNext, V bV bNext) -> pure $ V (aV <> bV) (go aFins bFins aNext bNext aV bV)
 
         -- left view, remaining variants
-        (V aV aNext, B bNext) -> pure $ V (aV <> bPrV) (go aNext bNext aV bPrV)
-        (V aV aNext, S)       -> pure $ V (aV <> bPrV) (go aNext (pure S) aV bPrV)
+        (V aV aNext, B bNext) -> pure $ V (aV <> bPrV) (go aFins bFins aNext bNext aV bPrV)
+        (V aV aNext, S)       -> pure $ V (aV <> bPrV) (go aFins bFins aNext (pure S) aV bPrV)
 
         -- right view, remaining variants
-        (B aNext, V bV bNext)  -> pure $ V (aPrV <> bV) (go aNext bNext aPrV bV)
-        (S, V bV bNext)        -> pure $ V (aPrV <> bV) (go (pure S) bNext aPrV bV)
+        (B aNext, V bV bNext)  -> pure $ V (aPrV <> bV) (go aFins bFins aNext bNext aPrV bV)
+        (S, V bV bNext)        -> pure $ V (aPrV <> bV) (go aFins bFins (pure S) bNext aPrV bV)
 
         -- both blocked
-        (B aNext, B bNext) -> pure $ B $ go aNext bNext aPrV bPrV
+        (B aNext, B bNext) -> pure $ B $ go aFins bFins aNext bNext aPrV bPrV
 
         -- both stopped
         (S, S) -> pure S
 
         -- one stopped
-        (S, B bNext) -> pure $ B $ go (pure S) bNext aPrV bPrV
-        (B aNext, S) -> pure $ B $ go aNext (pure S) aPrV bPrV
+        (S, B bNext) -> pure $ B $ go aFins bFins (pure S) bNext aPrV bPrV
+        (B aNext, S) -> pure $ B $ go aFins bFins aNext (pure S) aPrV bPrV
 
-unblock (Syn (Free (And a b next))) = go (unblock a) (unblock b) mempty mempty
+unblock (Syn (Free (And a b next))) = go [] [] (unblock a) (unblock b) mempty mempty
   where
-    go aSyn bSyn aPrV bPrV = do
+    go aFins bFins aSyn bSyn aPrV bPrV = do
       a' <- aSyn
       b' <- bSyn
 
       case (a', b') of
+        -- finalizers
+        (F fs next', s) -> pure $ F (fs <> bFins) $ go fs bFins next' (pure s) aPrV bPrV
+        (s, F fs next') -> pure $ F (aFins <> fs) $ go aFins fs (pure s) next' aPrV bPrV
+
         -- both finished
         (P aR, P bR) -> unblock $ Syn $ next (aR <> bR)
 
         -- both views
-        (V aV aNext, V bV bNext) -> pure $ V (aV <> bV) (go aNext bNext aV bV)
+        (V aV aNext, V bV bNext) -> pure $ V (aV <> bV) (go aFins bFins aNext bNext aV bV)
 
         -- left view, remaining variants
-        (V aV aNext, B bNext) -> pure $ V (aV <> bPrV) (go aNext bNext aV bPrV)
-        (V aV aNext, s)       -> pure $ V (aV <> bPrV) (go aNext (pure s) aV bPrV)
+        (V aV aNext, B bNext) -> pure $ V (aV <> bPrV) (go aFins bFins aNext bNext aV bPrV)
+        (V aV aNext, s)       -> pure $ V (aV <> bPrV) (go aFins bFins aNext (pure s) aV bPrV)
 
         -- right view, remaining variants
-        (B aNext, V bV bNext)  -> pure $ V (aPrV <> bV) (go aNext bNext aPrV bV)
-        (s, V bV bNext)        -> pure $ V (aPrV <> bV) (go (pure s) bNext aPrV bV)
+        (B aNext, V bV bNext)  -> pure $ V (aPrV <> bV) (go aFins bFins aNext bNext aPrV bV)
+        (s, V bV bNext)        -> pure $ V (aPrV <> bV) (go aFins bFins (pure s) bNext aPrV bV)
 
         -- both blocked
-        (B aNext, B bNext) -> pure $ B $ go aNext bNext aPrV bPrV
+        (B aNext, B bNext) -> pure $ B $ go aFins bFins aNext bNext aPrV bPrV
 
         -- one blocked, the other finished
-        (B aNext, p@(P _)) -> pure $ B $ go aNext (pure p) aPrV bPrV
-        (p@(P _), B bNext) -> pure $ B $ go (pure p) bNext aPrV bPrV
+        (B aNext, p@(P _)) -> pure $ B $ go aFins bFins aNext (pure p) aPrV bPrV
+        (p@(P _), B bNext) -> pure $ B $ go aFins bFins (pure p) bNext aPrV bPrV
 
         -- stopped
         (S, _) -> pure S
@@ -204,33 +215,3 @@ run syn showView = do
       pure synRIO'
 
     for_ v showView
-
---------------------------------------------------------------------------------
-
-data Y v = YV v | YB | forall a. YF (IO ()) (Syn v a) (a -> Syn v a)
-
-unblockC :: Syn v a -> Coroutine (Yield (Y v)) IO (Maybe a)
-unblockC (Syn (Pure a))       = pure $ Just a
-unblockC (Syn (Free Forever)) = pure Nothing
-
-unblockC s@(Syn (Free (On (Event ref) next))) = liftIO (readIORef ref) >>= \case
-  Just r  -> do
-    yield YB
-    unblockC $ Syn $ next r
-  Nothing -> do
-    yield YB
-    unblockC s
-
-unblockC (Syn (Free (View v next))) = do
-  yield (YV v)
-  unblockC $ Syn next
-
-unblockC (Syn (Free (Or a b next))) = go (unblockC a) (unblockC b) undefined undefined
-  where
-    go aSyn bSyn aPrV bPrV = do
-      a' <- liftIO $ resume aSyn
-      b' <- liftIO $ resume bSyn
-
-      case (a', b') of
-        (Right (Just r), _) -> unblockC $ Syn $ next r
-    
