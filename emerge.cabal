@@ -36,10 +36,12 @@ library
       src
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
-      base >=4.7 && <5
+      GLFW-b
+    , ObjectName
+    , OpenGL
+    , StateVar
+    , base >=4.7 && <5
     , free
-    , gl
-    , monad-coroutine
     , stm
   default-language: Haskell2010
 
@@ -53,11 +55,13 @@ executable emerge-exe
       app
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      base >=4.7 && <5
+      GLFW-b
+    , ObjectName
+    , OpenGL
+    , StateVar
+    , base >=4.7 && <5
     , emerge
     , free
-    , gl
-    , monad-coroutine
     , stm
   default-language: Haskell2010
 
@@ -72,10 +76,12 @@ test-suite emerge-test
       test
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      base >=4.7 && <5
+      GLFW-b
+    , ObjectName
+    , OpenGL
+    , StateVar
+    , base >=4.7 && <5
     , emerge
     , free
-    , gl
-    , monad-coroutine
     , stm
   default-language: Haskell2010

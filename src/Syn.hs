@@ -9,8 +9,6 @@ module Syn where
 import Control.Applicative
 import Control.Concurrent hiding (yield)
 
-import Control.Monad.Coroutine
-import Control.Monad.Coroutine.SuspensionFunctors
 import Control.Monad.IO.Class
 import Control.Monad.Free
 
