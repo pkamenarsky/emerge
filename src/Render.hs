@@ -13,12 +13,14 @@ import Graphics.GL.Core45
 import Syn
 
 import GHC.Int
+import GHC.Word
 
 newtype Frame = Frame Int
   deriving (Eq, Ord)
 
 data Out = Out
-  { render :: Frame -> IO ()
+  { tex :: Word32
+  , render :: Frame -> IO ()
   , destroy :: IO ()
   }
 
@@ -35,7 +37,7 @@ with1 f = alloca $ \r -> f r >> peek r
 
 composite :: CompositeOpts -> Syn Out ()
 composite opts = do
-  _ <- unsafeNonBlockingIO $ do
+  (fbo, tex) <- unsafeNonBlockingIO $ do
     fbo <- with1 $ glCreateFramebuffers 1
     tex <- with1 $ glCreateTextures GL_TEXTURE_2D 1
 
@@ -43,9 +45,41 @@ composite opts = do
     glTexStorage2D GL_TEXTURE_2D 1 GL_RGBA8 (width opts) (height opts)
     glClearTexImage tex 0 GL_RGBA GL_UNSIGNED_BYTE undefined
 
-    pure ()
+    pure (fbo, tex)
 
-  mapView combine $ mapView ((,Nothing) . Just) (a opts) <|> mapView ((Nothing,) . Just) (b opts)
+  mapView (combine fbo tex) $ mapView ((,Nothing) . Just) (a opts) <|> mapView ((Nothing,) . Just) (b opts)
 
   where
-    combine (Nothing, Nothing) = undefined
+    combine fbo tex (Just aOut, Just bOut) = Out
+      { tex = tex
+      , render = \frame -> do
+          render aOut frame
+          render bOut frame
+          glBindFramebuffer GL_FRAMEBUFFER fbo
+      , destroy = undefined
+      }
+
+--------------------------------------------------------------------------------
+
+data NodeType
+  = Composite CompositeOptsN
+
+data Node = Node
+  { t :: NodeType
+  , children :: [Node]
+  }
+
+data CompositeOptsN = CompositeOptsN
+  { modeN :: Int
+  , widthN :: Int32
+  , heightN :: Int32
+  }
+
+compositeN :: CompositeOptsN -> Syn Node a -> Syn Node a -> Syn Node a
+compositeN opts a b = mapView node (mapView pure a <|> mapView pure b)
+  where
+    node :: [Node] -> Node
+    node children = Node
+      { t = Composite opts
+      , children = children
+      }

@@ -7,8 +7,11 @@
 module Syn where
 
 import Control.Applicative
-import Control.Concurrent
+import Control.Concurrent hiding (yield)
 
+import Control.Monad.Coroutine
+import Control.Monad.Coroutine.SuspensionFunctors
+import Control.Monad.IO.Class
 import Control.Monad.Free
 
 import Data.IORef
@@ -27,6 +30,7 @@ data SynF v next
   = Forever
   | View v next
   | forall a. IO (IO a) (a -> next)
+  | forall a. Finalize (IO ()) (Syn v a) (a -> next)
   | forall a. On (Event a) (a -> next)
   | forall a. Or (Syn v a) (Syn v a) (a -> next)
   | forall a. Monoid a => And (Syn v a) (Syn v a) (a -> next)
@@ -41,13 +45,13 @@ mapView _ (Syn (Pure a)) = Syn $ Pure a
 mapView _ (Syn (Free Forever)) = Syn $ Free Forever
 mapView f (Syn (Free (View u next))) = Syn $ Free $ View (f u) (getSyn $ mapView f $ Syn next)
 mapView f (Syn (Free (IO io next))) = Syn $ Free $ IO io (fmap (getSyn . mapView f . Syn) next)
+mapView f (Syn (Free (Finalize fin s next))) = Syn $ Free $ Finalize fin (mapView f s) (fmap (getSyn . mapView f . Syn) next)
 mapView f (Syn (Free (On e next))) = Syn $ Free $ On e (fmap (getSyn . mapView f . Syn) next)
 mapView f (Syn (Free (Or a b next))) = Syn $ Free $ Or (mapView f a) (mapView f b) (fmap (getSyn . mapView f . Syn) next)
 mapView f (Syn (Free (And a b next))) = Syn $ Free $ And (mapView f a) (mapView f b) (fmap (getSyn . mapView f . Syn) next)
 
 forever :: Syn v a
 forever = Syn $ liftF Forever
-
 view :: v -> Syn v a
 view v = Syn $ do
   liftF $ View v ()
@@ -56,6 +60,9 @@ view v = Syn $ do
 -- | Fireing events from here will cause a dedlock.
 unsafeNonBlockingIO :: IO a -> Syn v a
 unsafeNonBlockingIO io = Syn $ liftF $ IO io id
+
+finalize :: IO () -> Syn v a -> Syn v a
+finalize fin s = Syn $ liftF $ Finalize fin s id
 
 on :: Event a -> Syn v a
 on e = Syn $ liftF $ On e id
@@ -73,6 +80,7 @@ data SynR v a
   = P a                  -- pure
   | V v (IO (SynR v a))  -- view
   | B (IO (SynR v a))    -- blocked
+  | forall b. F (IO ()) (IO (SynR v b)) (b -> Syn v a) -- finalizer
   | S                    -- stop
 
 unblock :: Monoid v => Syn v a -> IO (SynR v a)
@@ -89,6 +97,20 @@ unblock (Syn (Free (View v next))) = pure $ V v (unblock $ Syn next)
 unblock (Syn (Free (IO io next))) = do
   r <- io
   unblock $ Syn $ next r
+
+unblock (Syn (Free (Finalize fin s next))) = pure $ F fin (unblock s) (fmap Syn next)
+
+--unblock (Syn (Free (Finalize fin s next))) = go (unblock s)
+--  where
+--    go syn = do
+--      r <- syn
+--      case r of
+--        P a -> do
+--          fin
+--          unblock $ Syn $ next a
+--        V v next' -> pure $ V v (go next')
+--        B next'   -> pure $ B (go next')
+--        S         -> pure S
 
 unblock (Syn (Free (Or a b next))) = go (unblock a) (unblock b) mempty mempty
   where
@@ -182,3 +204,33 @@ run syn showView = do
       pure synRIO'
 
     for_ v showView
+
+--------------------------------------------------------------------------------
+
+data Y v = YV v | YB | forall a. YF (IO ()) (Syn v a) (a -> Syn v a)
+
+unblockC :: Syn v a -> Coroutine (Yield (Y v)) IO (Maybe a)
+unblockC (Syn (Pure a))       = pure $ Just a
+unblockC (Syn (Free Forever)) = pure Nothing
+
+unblockC s@(Syn (Free (On (Event ref) next))) = liftIO (readIORef ref) >>= \case
+  Just r  -> do
+    yield YB
+    unblockC $ Syn $ next r
+  Nothing -> do
+    yield YB
+    unblockC s
+
+unblockC (Syn (Free (View v next))) = do
+  yield (YV v)
+  unblockC $ Syn next
+
+unblockC (Syn (Free (Or a b next))) = go (unblockC a) (unblockC b) undefined undefined
+  where
+    go aSyn bSyn aPrV bPrV = do
+      a' <- liftIO $ resume aSyn
+      b' <- liftIO $ resume bSyn
+
+      case (a', b') of
+        (Right (Just r), _) -> unblockC $ Syn $ next r
+    
