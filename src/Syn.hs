@@ -102,6 +102,7 @@ unblock (Syn (Free (Finalize fin s next))) = pure $ F [fin] (go $ unblock s)
   where
     go syn = do
       r <- syn
+
       case r of
         P a -> do
           fin
@@ -189,29 +190,43 @@ unblock (Syn (Free (And a b next))) = go [] [] (unblock a) (unblock b) mempty me
 
 --------------------------------------------------------------------------------
 
-run :: Monoid v => Syn v () -> (v -> IO ()) -> IO (Event a -> a -> IO ())
+really :: IO (SynR v ()) -> IO (Either [IO ()] (IO (SynR v ()), Maybe v))
+really = go []
+  where
+    go fs s = do
+      r <- s
+
+      case r of
+        V v next   -> pure $ Right (next, Just v)
+        B next     -> pure $ Right (next, Nothing)
+        F fs' next -> go fs' next
+        S          -> pure $ Left fs
+        P _        -> pure $ Left fs
+
+run :: Monoid v => Syn v () -> (v -> IO ()) -> IO (Maybe (Event a -> a -> IO ()))
 run syn showView = do
-  synR <- unblock syn
+  r <- really $ unblock syn
 
-  mvSyn <- newMVar =<< case synR of
-    V v synRIO -> showView v >> pure synRIO
-    B synRIO   -> pure synRIO
-    S          -> error "stopped"
-    P ()       -> error "finished"
+  case r of
+    Left fs -> do
+      sequence_ fs
+      pure Nothing
+    Right (next, v) -> do
+      for_ v showView
 
-  pure $ \(Event ref) a -> do
-    v <- modifyMVar mvSyn $ \synRIO -> do
-      writeIORef ref (Just a)
+      mvSyn <- newMVar next
 
-      synR' <- synRIO
+      pure $ Just $ \(Event ref) a -> do
+        v' <- modifyMVar mvSyn $ \s -> do
+          writeIORef ref (Just a)
 
-      synRIO' <- case synR' of
-        V v synRIO' -> pure (synRIO', Just v)
-        B synRIO'   -> pure (synRIO', Nothing)
-        S           -> error "stopped"
-        P ()        -> error "finished"
+          r' <- really s
 
-      writeIORef ref Nothing
-      pure synRIO'
+          s' <- case r' of
+            Left _    -> error "blocked indefinitely/finished" -- TODO
+            Right r'' -> pure r''
 
-    for_ v showView
+          writeIORef ref Nothing
+          pure s'
+
+        for_ v' showView

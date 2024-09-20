@@ -11,12 +11,25 @@ import Data.Foldable (asum)
 import qualified Data.List.NonEmpty as NE
 import Data.Semigroup
 
-s1 :: Monad f => Alternative f => Semigroup (f String) => (forall a. String -> f a) -> (t -> f ()) -> t -> f ()
-s1 view on e = do
+s1 :: Monad f => Alternative f => Semigroup (f String) => (forall a. String -> f a) -> (forall a. IO () -> f a -> f a) -> (t -> f ()) -> t -> f ()
+s1 view finalize on e = do
   pure ()
   on e
   _ <- asum [ view "START", on e ]
-  r <- sconcat $ NE.fromList [ asum [ view "A", view "A", view "C", on e >> pure "R" ], on e >> pure "R", on e >> pure "S" ]
+  r <- sconcat $ NE.fromList
+    [ asum
+        [ finalize (putStrLn "FIN") $ view "A"
+        , asum
+            [ finalize (putStrLn "FIN2") $ view "A"
+            , on e >> pure "T"
+            ]
+        , view "C"
+        , on e >> pure "R"
+        , finalize (putStrLn "FIN3") $ view "Z"
+        ]
+    , on e >> pure "R"
+    , on e >> pure "S"
+    ]
   _ <- asum [ view r, on e ]
   pure ()
   pure ()
@@ -43,7 +56,7 @@ s1 view on e = do
 test :: IO ()
 test = do
   e <- newEvent :: IO (Event ())
-  fire <- run (s1 view on e) putStrLn
+  Just fire <- run (s1 view finalize on e) putStrLn
 
   fire e ()
   fire e ()
@@ -55,7 +68,7 @@ test = do
 test2 :: IO ()
 test2 = do
   e <- SynT.newEvent :: IO (SynT.Event ())
-  (fire, go) <- SynT.run (s1 SynT.view SynT.on e) putStrLn
+  (fire, go) <- SynT.run (s1 SynT.view (\_ x -> x) SynT.on e) putStrLn
 
   forkIO (go >> pure ())
 
@@ -70,7 +83,7 @@ main :: IO ()
 main = do
   ref <- newIORef ""
   e <- newEvent :: IO (Event ())
-  fire <- run (s1 e) (writeIORef ref)
+  Just fire <- run (s1 e) (writeIORef ref)
 
   fire e ()
   cmp ref "AAC"
