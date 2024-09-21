@@ -1,12 +1,12 @@
 module Main (main) where
 
-import Control.Concurrent
+import Control.Exception
 
 import Data.Foldable
 
-import Render
-
 import qualified Graphics.UI.GLFW as GLFW
+
+import Render
 
 main :: IO ()
 main = do
@@ -17,17 +17,18 @@ main = do
   GLFW.windowHint $ GLFW.WindowHint'ContextVersionMinor 6
   GLFW.windowHint $ GLFW.WindowHint'OpenGLProfile GLFW.OpenGLProfile'Core
 
-  mWin <- GLFW.createWindow 640 480 "SYN" Nothing Nothing
-
-  GLFW.makeContextCurrent mWin
-
-  render <- testrender2
-
-  for_ mWin (go render)
+  bracket
+    (GLFW.createWindow 640 480 "SYN" Nothing Nothing)
+    (traverse_ GLFW.destroyWindow)
+    $ \mWin -> do
+         GLFW.makeContextCurrent mWin
+         render <- testrender2
+         for_ mWin (go render)
 
   putStrLn "bye..."
 
   where
+    go :: IO () -> GLFW.Window -> IO ()
     go render win = do
       render
 
@@ -37,7 +38,5 @@ main = do
       close <- GLFW.windowShouldClose win
 
       if close
-        then do
-          GLFW.destroyWindow win
-          pure ()
+        then pure ()
         else go render win

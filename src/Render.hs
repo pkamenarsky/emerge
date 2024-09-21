@@ -6,9 +6,15 @@ module Render where
 import Control.Applicative
 import Control.Concurrent.MVar
 
+import qualified Data.ByteString as B
+import Data.ByteString (ByteString)
 import Data.Foldable
 import Data.ObjectName
 import Data.StateVar
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
+import qualified Data.Text.IO as T
+import Data.Text (Text)
 
 import Foreign.Ptr
 import Foreign.C.Types
@@ -23,23 +29,26 @@ import Syn
 import GHC.Int
 import GHC.Word
 
+import System.FilePath ((</>))
+import qualified System.FilePath as Path
+
 import Debug.Trace
 
 newtype Frame = Frame Int
   deriving (Eq, Ord)
 
 data Out = Out
-  { tex :: Word32
-  , render :: Frame -> IO ()
-  , destroy :: IO ()
+  { outTex :: Word32
+  , outRender :: Frame -> IO ()
+  , outDestroy :: IO ()
   }
 
 data CompositeOpts = CompositeOpts
-  { mode :: Int
-  , width :: Int32
-  , height :: Int32
-  , a :: Syn Out ()
-  , b :: Syn Out ()
+  { coptsMode :: Int
+  , coptsWidth :: Int32
+  , coptsHeight :: Int32
+  , coptsA :: Syn Out ()
+  , coptsB :: Syn Out ()
   }
 
 with1 :: Storable a => (Ptr a -> IO ()) -> IO a
@@ -59,16 +68,16 @@ composite opts = do
 
   let fbo = undefined
       tex = undefined
-  mapView (combine fbo tex) $ mapView ((,Nothing) . Just) (a opts) <|> mapView ((Nothing,) . Just) (b opts)
+  mapView (combine fbo tex) $ mapView ((,Nothing) . Just) (coptsA opts) <|> mapView ((Nothing,) . Just) (coptsA opts)
 
   where
     combine fbo tex (Just aOut, Just bOut) = Out
-      { tex = tex
-      , render = \frame -> do
-          render aOut frame
-          render bOut frame
+      { outTex = tex
+      , outRender = \frame -> do
+          outRender aOut frame
+          outRender bOut frame
           -- glBindFramebuffer GL_FRAMEBUFFER fbo
-      , destroy = undefined
+      , outDestroy = undefined
       }
 
 fi :: (Integral a, Num b) => a -> b
@@ -128,7 +137,8 @@ testrender2 = do
   GL.compileShader vertShader
 
   fragShader <- GL.createShader GL.FragmentShader
-  GL.shaderSourceBS fragShader $= fragShaderText
+  fragShaderText' <- resolveGLSL fragShaderText
+  GL.shaderSourceBS fragShader $= T.encodeUtf8 fragShaderText'
   GL.compileShader fragShader
 
   program <- GL.createProgram
@@ -139,9 +149,10 @@ testrender2 = do
   GL.programInfoLog program >>= print
 
   vPos <- get $ GL.attribLocation program "vPos"
+  vUV <- get $ GL.attribLocation program "vUV"
 
   rectBuf <- rectBuffer
-  (drawRect, _) <- getDrawRect rectBuf vPos Nothing
+  (drawRect, _) <- getDrawRect rectBuf vPos (Just vUV)
 
   pure $ do
     GL.viewport $= (GL.Position 0 0, GL.Size 640 480)
@@ -156,21 +167,31 @@ testrender2 = do
         _ -> traceIO $ show msg
 
     vertShaderText = mconcat
-      [ "#version 330\n"
+      [ "#version 460\n"
       , "in vec3 vPos;\n"
+      , "in vec2 vUV;\n"
+      , "out vec2 uv;\n"
       , "void main()\n"
       , "{\n"
       , "    gl_Position = vec4(vPos, 1.0);\n"
+      , "    uv = vUV;\n"
       , "}\n"
       ]
 
-    fragShaderText = mconcat
-      [ "#version 330\n"
-      , "out vec4 fragment;\n"
-      , "void main()\n"
-      , "{\n"
-      , "    fragment = vec4(1.0, 0.0, 0.0, 1.0);\n"
-      , "}\n"
+    fragShaderText = T.unlines
+      [ "#version 460"
+      , "#include \"assets/lygia/generative/cnoise.glsl\""
+      , "out vec4 fragment;"
+      , "in vec2 uv;"
+      , "void main()"
+      , "{"
+      , "  float u_period = 10.;"
+      , "  float u_time = 123.;"
+      , "  float u_scale = 0.2;"
+      , "  float u_offset = 0.1;"
+      , "  float c = cnoise(vec3(uv * u_period, u_time)) * u_scale + u_offset;"
+      , "  fragment = vec4(c, c, c, 1.);"
+      , "}"
       ]
 
 testrender :: IO (IO ())
@@ -244,3 +265,29 @@ testrender = do
       , "    fragment = vec4(color, 1.0);\n"
       , "}\n"
       ]
+
+--------------------------------------------------------------------------------
+
+-- TODO: embed basePath directory in binary using TH
+resolveGLSLFile :: FilePath -> IO Text
+resolveGLSLFile path = do
+  file <- T.readFile path
+
+  T.unlines <$> sequence
+    [ case T.stripPrefix "#include \"" line >>= T.stripSuffix "\"" of
+        Just include -> resolveGLSLFile (basePath </> T.unpack include)
+        Nothing      -> pure line
+    | line <- T.lines file
+    ]
+
+  where
+    basePath = Path.takeDirectory path
+
+resolveGLSL :: T.Text -> IO Text
+resolveGLSL glsl = do
+  T.unlines <$> sequence
+    [ case T.stripPrefix "#include \"" line >>= T.stripSuffix "\"" of
+        Just include -> resolveGLSLFile (T.unpack include)
+        Nothing      -> pure line
+    | line <- T.lines glsl
+    ]

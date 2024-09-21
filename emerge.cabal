@@ -41,8 +41,11 @@ library
     , OpenGL
     , StateVar
     , base >=4.7 && <5
+    , bytestring
+    , filepath
     , free
     , stm
+    , text
   default-language: Haskell2010
 
 executable emerge-exe
@@ -60,9 +63,12 @@ executable emerge-exe
     , OpenGL
     , StateVar
     , base >=4.7 && <5
+    , bytestring
     , emerge
+    , filepath
     , free
     , stm
+    , text
   default-language: Haskell2010
 
 test-suite emerge-test
@@ -81,7 +87,10 @@ test-suite emerge-test
     , OpenGL
     , StateVar
     , base >=4.7 && <5
+    , bytestring
     , emerge
+    , filepath
     , free
     , stm
+    , text
   default-language: Haskell2010
