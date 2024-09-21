@@ -150,7 +150,7 @@ testrender2 = do
     GL.currentProgram $= Just program
     drawRect
   where
-    dbg msg@(GL.DebugMessage src type_ id_ severity _) = do
+    dbg msg@(GL.DebugMessage _ _ _ severity _) = do
       case severity of
         GL.DebugSeverityNotification -> pure ()
         _ -> traceIO $ show msg
