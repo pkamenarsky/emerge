@@ -6,6 +6,7 @@ module Render where
 import Control.Applicative
 import Control.Concurrent.MVar
 
+import Data.Foldable
 import Data.ObjectName
 import Data.StateVar
 
@@ -67,6 +68,45 @@ composite opts = do
           -- glBindFramebuffer GL_FRAMEBUFFER fbo
       , destroy = undefined
       }
+
+fi :: (Integral a, Num b) => a -> b
+fi = fromIntegral
+
+fsz :: Int
+fsz = sizeOf (undefined :: Float)
+
+rectBuffer :: IO GL.BufferObject
+rectBuffer = do
+  buf <- genObjectName
+  GL.bindBuffer GL.ArrayBuffer $= Just buf
+  withArrayLen verts $ \len ptr -> GL.bufferData GL.ArrayBuffer $= (fi (len * fsz), ptr, GL.StaticDraw)
+
+  pure buf
+
+  where
+    verts :: [CFloat]
+    verts =
+      [ -1, -1, 0,  0, 0
+      ,  0, -1, 0,  1, 0
+      , -1,  1, 0,  0, 1
+
+      , -1,  1, 0,  0, 1
+      ,  1, -1, 0,  1, 0
+      ,  1,  1, 0,  1, 1
+      ]
+
+drawRect :: GL.BufferObject -> GL.AttribLocation -> Maybe (GL.AttribLocation) -> IO ()
+drawRect buf vLoc uvLoc = do
+  GL.bindBuffer GL.ArrayBuffer $= Just buf
+
+  GL.vertexAttribArray vLoc $= GL.Enabled
+  GL.vertexAttribPointer vLoc $= (GL.ToFloat, GL.VertexArrayDescriptor 3 GL.Float (fi (5 * fsz)) nullPtr)
+
+  for_ uvLoc $ \uvLoc' -> do
+    GL.vertexAttribArray uvLoc' $= GL.Enabled
+    GL.vertexAttribPointer uvLoc' $= (GL.ToFloat, GL.VertexArrayDescriptor 2 GL.Float (fi (5 * fsz)) (nullPtr `plusPtr` (3 * fsz)))
+
+  GL.drawArrays GL.Triangles 0 6
 
 testrender :: IO (IO ())
 testrender = do
