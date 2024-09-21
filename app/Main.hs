@@ -12,6 +12,7 @@ main :: IO ()
 main = do
   _ <- GLFW.init
 
+  GLFW.windowHint $ GLFW.WindowHint'OpenGLDebugContext True
   GLFW.windowHint $ GLFW.WindowHint'ContextVersionMajor 4
   GLFW.windowHint $ GLFW.WindowHint'ContextVersionMinor 6
   GLFW.windowHint $ GLFW.WindowHint'OpenGLProfile GLFW.OpenGLProfile'Core
@@ -20,7 +21,7 @@ main = do
 
   GLFW.makeContextCurrent mWin
 
-  render <- testrender
+  render <- testrender2
 
   for_ mWin (go render)
 

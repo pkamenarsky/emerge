@@ -23,6 +23,8 @@ import Syn
 import GHC.Int
 import GHC.Word
 
+import Debug.Trace
+
 newtype Frame = Frame Int
   deriving (Eq, Ord)
 
@@ -73,7 +75,7 @@ fi :: (Integral a, Num b) => a -> b
 fi = fromIntegral
 
 fsz :: Int
-fsz = sizeOf (undefined :: Float)
+fsz = sizeOf (undefined :: GL.GLfloat)
 
 rectBuffer :: IO GL.BufferObject
 rectBuffer = do
@@ -84,19 +86,23 @@ rectBuffer = do
   pure buf
 
   where
-    verts :: [CFloat]
+    verts :: [GL.GLfloat]
     verts =
-      [ -1, -1, 0,  0, 0
-      ,  0, -1, 0,  1, 0
-      , -1,  1, 0,  0, 1
+        -- pos       -- uv
+      [ -1, -1, 0,   0, 0
+      ,  1, -1, 0,   1, 0
+      , -1,  1, 0,   0, 1
 
-      , -1,  1, 0,  0, 1
-      ,  1, -1, 0,  1, 0
-      ,  1,  1, 0,  1, 1
+      , -1,  1, 0,   0, 1
+      ,  1, -1, 0,   1, 0
+      ,  1,  1, 0,   1, 1
       ]
 
-drawRect :: GL.BufferObject -> GL.AttribLocation -> Maybe (GL.AttribLocation) -> IO ()
-drawRect buf vLoc uvLoc = do
+getDrawRect :: GL.BufferObject -> GL.AttribLocation -> Maybe (GL.AttribLocation) -> IO (IO (), IO ())
+getDrawRect buf vLoc uvLoc = do
+  vao <- genObjectName
+  GL.bindVertexArrayObject $= Just vao
+
   GL.bindBuffer GL.ArrayBuffer $= Just buf
 
   GL.vertexAttribArray vLoc $= GL.Enabled
@@ -106,7 +112,66 @@ drawRect buf vLoc uvLoc = do
     GL.vertexAttribArray uvLoc' $= GL.Enabled
     GL.vertexAttribPointer uvLoc' $= (GL.ToFloat, GL.VertexArrayDescriptor 2 GL.Float (fi (5 * fsz)) (nullPtr `plusPtr` (3 * fsz)))
 
-  GL.drawArrays GL.Triangles 0 6
+  pure (render vao, deleteObjectName vao)
+
+  where
+    render vao = do
+      GL.bindVertexArrayObject $= Just vao
+      GL.drawArrays GL.Triangles 0 6
+
+testrender2 :: IO (IO ())
+testrender2 = do
+  GL.debugMessageCallback $= Just dbg
+
+  vertShader <- GL.createShader GL.VertexShader
+  GL.shaderSourceBS vertShader $= vertShaderText
+  GL.compileShader vertShader
+
+  fragShader <- GL.createShader GL.FragmentShader
+  GL.shaderSourceBS fragShader $= fragShaderText
+  GL.compileShader fragShader
+
+  program <- GL.createProgram
+  GL.attachShader program vertShader
+  GL.attachShader program fragShader
+  GL.linkProgram program
+
+  GL.programInfoLog program >>= print
+
+  vPos <- get $ GL.attribLocation program "vPos"
+
+  rectBuf <- rectBuffer
+  (drawRect, _) <- getDrawRect rectBuf vPos Nothing
+
+  pure $ do
+    GL.viewport $= (GL.Position 0 0, GL.Size 640 480)
+    GL.clearColor $= GL.Color4 0 0 0 0
+
+    GL.currentProgram $= Just program
+    drawRect
+  where
+    dbg msg@(GL.DebugMessage src type_ id_ severity _) = do
+      case severity of
+        GL.DebugSeverityNotification -> pure ()
+        _ -> traceIO $ show msg
+
+    vertShaderText = mconcat
+      [ "#version 330\n"
+      , "in vec3 vPos;\n"
+      , "void main()\n"
+      , "{\n"
+      , "    gl_Position = vec4(vPos, 1.0);\n"
+      , "}\n"
+      ]
+
+    fragShaderText = mconcat
+      [ "#version 330\n"
+      , "out vec4 fragment;\n"
+      , "void main()\n"
+      , "{\n"
+      , "    fragment = vec4(1.0, 0.0, 0.0, 1.0);\n"
+      , "}\n"
+      ]
 
 testrender :: IO (IO ())
 testrender = do
