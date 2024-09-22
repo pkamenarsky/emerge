@@ -5,6 +5,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 
+{-# LANGUAGE DeriveGeneric #-}
+
 module Types where
 
 import Data.Proxy
@@ -12,7 +14,7 @@ import Data.StateVar
 
 import qualified Graphics.Rendering.OpenGL as GL
 
-import GHC.Generics (Generic, Rep, V1, U1, (:*:) ((:*:)), K1 (K1), M1 (M1), S, Meta (MetaSel), from)
+import GHC.Generics (Generic, Rep, V1, U1, (:*:) ((:*:)), C, D, K1 (K1), M1 (M1), S, Meta (MetaSel), from)
 import GHC.TypeLits
 
 --------------------------------------------------------------------------------
@@ -42,7 +44,12 @@ instance (GShaderParam a, GShaderParam b) => GShaderParam (a :*: b) where
 
     pure $ \(a :*: b) -> setA a >> setB b
 
-instance GShaderParam a => GShaderParam (M1 x i a) where
+instance GShaderParam a => GShaderParam (M1 C i a) where
+  gShaderParam opts program = do
+    set <- gShaderParam opts program
+    pure $ \(M1 a) -> set a
+
+instance GShaderParam a => GShaderParam (M1 D i a) where
   gShaderParam opts program = do
     set <- gShaderParam opts program
     pure $ \(M1 a) -> set a
