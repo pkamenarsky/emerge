@@ -11,6 +11,7 @@ import Control.Concurrent hiding (yield)
 
 import Control.Monad.IO.Class
 import Control.Monad.Free
+import Control.Monad.Trans.Class
 
 import Data.IORef
 import Data.Foldable (for_)
@@ -24,76 +25,80 @@ newEvent = Event <$> newIORef Nothing
 
 --------------------------------------------------------------------------------
 
-data SynF v next
+data SynF v m next
   = Forever
   | View v next
-  | forall a. IO (IO a) (a -> next)
-  | forall a. Finalize (IO ()) (Syn v a) (a -> next)
+  | forall a. Lift (m a) (a -> next)
+  | forall a. Finalize (m ()) (Syn v m a) (a -> next)
   | forall a. On (Event a) (a -> next)
-  | forall a. Or (Syn v a) (Syn v a) (a -> next)
-  | forall a. Monoid a => And (Syn v a) (Syn v a) (a -> next)
+  | forall a. Or (Syn v m a) (Syn v m a) (a -> next)
+  | forall a. Monoid a => And (Syn v m a) (Syn v m a) (a -> next)
 
-deriving instance Functor (SynF v)
+deriving instance Functor (SynF v m)
 
-newtype Syn v a = Syn { getSyn :: Free (SynF v) a }
+newtype Syn v m a = Syn { getSyn :: Free (SynF v m) a }
   deriving (Functor, Applicative, Monad)
 
-mapView :: (u -> v) -> Syn u a -> Syn v a
+instance Alternative (Syn v m) where
+  empty = forever
+  a <|> b = Syn $ liftF $ Or a b id
+
+instance Monoid a => Semigroup (Syn v m a) where
+  a <> b = Syn $ liftF $ And a b id
+
+instance MonadTrans (Syn v) where
+  lift m = Syn $ liftF $ Lift m id
+
+mapView :: (u -> v) -> Syn u m a -> Syn v m a
 mapView _ (Syn (Pure a)) = Syn $ Pure a
 mapView _ (Syn (Free Forever)) = Syn $ Free Forever
 mapView f (Syn (Free (View u next))) = Syn $ Free $ View (f u) (getSyn $ mapView f $ Syn next)
-mapView f (Syn (Free (IO io next))) = Syn $ Free $ IO io (fmap (getSyn . mapView f . Syn) next)
+mapView f (Syn (Free (Lift m next))) = Syn $ Free $ Lift m (fmap (getSyn . mapView f . Syn) next)
 mapView f (Syn (Free (Finalize fin s next))) = Syn $ Free $ Finalize fin (mapView f s) (fmap (getSyn . mapView f . Syn) next)
 mapView f (Syn (Free (On e next))) = Syn $ Free $ On e (fmap (getSyn . mapView f . Syn) next)
 mapView f (Syn (Free (Or a b next))) = Syn $ Free $ Or (mapView f a) (mapView f b) (fmap (getSyn . mapView f . Syn) next)
 mapView f (Syn (Free (And a b next))) = Syn $ Free $ And (mapView f a) (mapView f b) (fmap (getSyn . mapView f . Syn) next)
 
-forever :: Syn v a
+forever :: Syn v m a
 forever = Syn $ liftF Forever
-view :: v -> Syn v a
+
+view :: v -> Syn v m a
 view v = Syn $ do
   liftF $ View v ()
   liftF Forever
 
--- | Fireing events from here will cause a dedlock.
-unsafeNonBlockingIO :: IO a -> Syn v a
-unsafeNonBlockingIO io = Syn $ liftF $ IO io id
-
-finalize :: IO () -> Syn v a -> Syn v a
+finalize :: m () -> Syn v m a -> Syn v m a
 finalize fin s = Syn $ liftF $ Finalize fin s id
 
-on :: Event a -> Syn v a
+on :: Event a -> Syn v m a
 on e = Syn $ liftF $ On e id
 
-instance Alternative (Syn v) where
-  empty = forever
-  a <|> b = Syn $ liftF $ Or a b id
-
-instance Monoid a => Semigroup (Syn v a) where
-  a <> b = Syn $ liftF $ And a b id
+-- | Fireing events from here will cause a dedlock.
+unsafeNonBlockingIO :: MonadIO m => IO a -> Syn v m a
+unsafeNonBlockingIO io = lift $ liftIO io
 
 --------------------------------------------------------------------------------
 
-data SynR v a
-  = P a                  -- pure
-  | V v (IO (SynR v a))  -- view
-  | B (IO (SynR v a))    -- blocked
-  | F [IO ()] (IO (SynR v a)) -- finalizer
-  | S                    -- stop
+data SynR v m a
+  = P a                       -- pure
+  | V v (m (SynR v m a))      -- view
+  | B (m (SynR v m a))        -- blocked
+  | F [m ()] (m (SynR v m a)) -- finalizer
+  | S                         -- stop
 
-unblock :: Monoid v => Syn v a -> IO (SynR v a)
+unblock :: Monad m => Monoid v => Syn v m a -> m (SynR v m a)
 
 unblock (Syn (Pure a))       = pure $ P a
 unblock (Syn (Free Forever)) = pure S
 
-unblock s@(Syn (Free (On (Event ref) next))) = readIORef ref >>= \case
-  Just r  -> pure $ B $ unblock $ Syn $ next r
-  Nothing -> pure $ B $ unblock s
+-- unblock s@(Syn (Free (On (Event ref) next))) = readIORef ref >>= \case
+--   Just r  -> pure $ B $ unblock $ Syn $ next r
+--   Nothing -> pure $ B $ unblock s
 
 unblock (Syn (Free (View v next))) = pure $ V v (unblock $ Syn next)
 
-unblock (Syn (Free (IO io next))) = do
-  r <- io
+unblock (Syn (Free (Lift m next))) = do
+  r <- m
   unblock $ Syn $ next r
 
 unblock (Syn (Free (Finalize fin s next))) = pure $ F [fin] (go $ unblock s)
@@ -188,7 +193,7 @@ unblock (Syn (Free (And a b next))) = go [] [] (unblock a) (unblock b) mempty me
 
 --------------------------------------------------------------------------------
 
-really :: IO (SynR v ()) -> IO (Either [IO ()] (IO (SynR v ()), Maybe v))
+really :: Monad m => m (SynR v m ()) -> m (Either [m ()] (m (SynR v m ()), Maybe v))
 really = go []
   where
     go fs s = do
@@ -201,7 +206,7 @@ really = go []
         S          -> pure $ Left fs
         P _        -> pure $ Left fs
 
-run :: Monoid v => Syn v () -> (v -> IO ()) -> IO (Maybe (Event a -> a -> IO ()))
+run :: Monoid v => Syn v IO () -> (v -> IO ()) -> IO (Maybe (Event a -> a -> IO ()))
 run syn showView = do
   r <- really $ unblock syn
 
