@@ -16,6 +16,7 @@ import Control.Monad.Trans.Class
 
 import Data.IORef
 import Data.Foldable (for_)
+import Data.Void
 
 --------------------------------------------------------------------------------
 
@@ -199,3 +200,40 @@ unblockAll = go []
         F fs' next -> go fs' next
         S          -> pure $ Left fs
         P _        -> pure $ Left fs
+
+--------------------------------------------------------------------------------
+
+data YF v m next
+  = YV v next
+  | YB next
+  | YF [m ()] next
+  | YS
+
+deriving instance Functor (YF v m)
+
+newtype Y v m a = Y { unY :: Free (YF v m) a }
+  deriving (Functor, Applicative, Monad)
+
+reinterpret :: Monad m => Monoid v => (forall b. e b -> m (Maybe b)) -> Syn e v m a -> Y v m a
+reinterpret re = undefined
+
+--------------------------------------------------------------------------------
+
+data AF m next
+  = AB next
+  | AF [m ()] next
+  | AS
+
+deriving instance Functor (AF m)
+
+newtype A m a = A { unA :: Free (AF m) a }
+  deriving (Functor, Applicative, Monad)
+
+data SynA m a b = SynA { unSynA :: a -> A m (b, SynA m a b) }
+
+toArr :: Applicative m => Y v m Void -> SynA m () v
+toArr (Y (Pure _)) = undefined -- unreachable
+toArr (Y (Free (YV v next))) = SynA $ \() -> pure (v, toArr $ Y next)
+toArr (Y (Free (YB next))) = SynA $ \() -> A $ Free $ AB $ unA $ unSynA (toArr $ Y next) ()
+toArr (Y (Free (YF fins next))) = SynA $ \() -> A $ Free $ AF fins $ unA $ unSynA (toArr $ Y next) ()
+toArr (Y (Free YS)) = SynA $ \() -> A $ Free $ AS
