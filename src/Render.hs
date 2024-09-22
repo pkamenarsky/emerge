@@ -86,8 +86,8 @@ fi = fromIntegral
 fsz :: Int
 fsz = sizeOf (undefined :: GL.GLfloat)
 
-rectBuffer :: IO GL.BufferObject
-rectBuffer = do
+createRectBuffer :: IO GL.BufferObject
+createRectBuffer = do
   buf <- genObjectName
   GL.bindBuffer GL.ArrayBuffer $= Just buf
   withArrayLen verts $ \len ptr -> GL.bufferData GL.ArrayBuffer $= (fi (len * fsz), ptr, GL.StaticDraw)
@@ -107,8 +107,8 @@ rectBuffer = do
       ,  1,  1, 0,   1, 1
       ]
 
-getDrawRect :: GL.BufferObject -> GL.AttribLocation -> Maybe (GL.AttribLocation) -> IO (IO (), IO ())
-getDrawRect buf vLoc uvLoc = do
+createDrawRect :: GL.BufferObject -> GL.AttribLocation -> Maybe (GL.AttribLocation) -> IO (IO (), IO ())
+createDrawRect buf vLoc uvLoc = do
   vao <- genObjectName
   GL.bindVertexArrayObject $= Just vao
 
@@ -127,6 +127,31 @@ getDrawRect buf vLoc uvLoc = do
     render vao = do
       GL.bindVertexArrayObject $= Just vao
       GL.drawArrays GL.Triangles 0 6
+
+createFramebuffer :: Int32 -> Int32 -> GL.PixelInternalFormat -> GL.Clamping -> IO (IO (), IO ())
+createFramebuffer width height ifmt clamp = do
+  fbo <- genObjectName
+  tex <- genObjectName
+
+  GL.textureBinding GL.Texture2D $= Just tex
+
+  GL.texImage2D GL.Texture2D GL.NoProxy 0 ifmt (GL.TextureSize2D width height) 0 (GL.PixelData GL.RGBA GL.UnsignedByte nullPtr)
+  GL.textureFilter GL.Texture2D $= ((GL.Linear', Nothing), GL.Linear')
+  GL.textureWrapMode GL.Texture2D GL.S $= (GL.Repeated, clamp)
+
+  GL.bindFramebuffer GL.Framebuffer $= fbo
+  GL.framebufferTexture2D GL.Framebuffer (GL.ColorAttachment 0) GL.Texture2D tex 0
+
+  pure (bind fbo, destroy fbo tex)
+
+  where
+    bind fbo = do
+      GL.bindFramebuffer GL.Framebuffer $= fbo
+      GL.viewport $= (GL.Position 0 0, GL.Size width height)
+
+    destroy fbo tex = do
+      deleteObjectName fbo
+      deleteObjectName tex
 
 testrender2 :: IO (IO ())
 testrender2 = do
@@ -151,8 +176,8 @@ testrender2 = do
   vPos <- get $ GL.attribLocation program "vPos"
   vUV <- get $ GL.attribLocation program "vUV"
 
-  rectBuf <- rectBuffer
-  (drawRect, _) <- getDrawRect rectBuf vPos (Just vUV)
+  rectBuf <- createRectBuffer
+  (drawRect, _) <- createDrawRect rectBuf vPos (Just vUV)
 
   pure $ do
     GL.viewport $= (GL.Position 0 0, GL.Size 640 480)
