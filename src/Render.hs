@@ -241,7 +241,7 @@ blit rectBuf tex viewport = do
       , "}"
       ]
 
---------------------------------------------------------------------------------
+-- Ops -------------------------------------------------------------------------
 
 data OpOptions = OpOptions
   { opWidth :: Int32
@@ -263,15 +263,17 @@ data FillParams = FillParams
   } deriving Generic
 
 instance ShaderParam FillParams where
+
+data Op params = Op (GL.TextureObject, params -> IO (), IO ())
   
-fill :: RectBuffer -> OpOptions -> IO (GL.TextureObject, FillParams -> IO (), IO ())
+fill :: RectBuffer -> OpOptions -> IO (Op FillParams)
 fill rectBuf opts = do
   (tex, bindFBO, destroyFBO) <- createFramebuffer (opWidth opts) (opHeight opts) (opFormat opts) (opClamp opts)
   (attribs, bindShader, destroyShader) <- createShader vertT fragT False
 
   (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
 
-  pure
+  pure $ Op
     ( tex
     , \params -> do
         GL.viewport $= (GL.Position 0 0, GL.Size 640 480)
