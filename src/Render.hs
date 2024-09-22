@@ -40,11 +40,15 @@ import Types
 
 import Debug.Trace
 
+--------------------------------------------------------------------------------
+
 fi :: (Integral a, Num b) => a -> b
 fi = fromIntegral
 
 fsz :: Int
 fsz = sizeOf (undefined :: GL.GLfloat)
+
+--------------------------------------------------------------------------------
 
 data RectBuffer = RectBuffer GL.BufferObject
 
@@ -237,12 +241,79 @@ blit rectBuf tex viewport = do
       , "}"
       ]
 
-data FillOpts = FillOpts
-  { u_foColor :: GL.Color3 Float
-  , u_foTime :: Float
+--------------------------------------------------------------------------------
+
+data OpOptions = OpOptions
+  { opWidth :: Int32
+  , opHeight :: Int32
+  , opFormat :: GL.PixelInternalFormat
+  , opClamp :: GL.Clamping
+  }
+
+defaultOpOptions :: OpOptions
+defaultOpOptions = OpOptions
+  { opWidth = 512
+  , opHeight = 512
+  , opFormat = GL.RGBA8
+  , opClamp = GL.ClampToEdge
+  }
+
+data FillParams = FillParams
+  { foColor :: GL.Color3 Float
   } deriving Generic
 
-instance ShaderParam FillOpts where
+instance ShaderParam FillParams where
+  
+fill :: RectBuffer -> OpOptions -> IO (GL.TextureObject, FillParams -> IO (), IO ())
+fill rectBuf opts = do
+  (tex, bindFBO, destroyFBO) <- createFramebuffer (opWidth opts) (opHeight opts) (opFormat opts) (opClamp opts)
+  (attribs, bindShader, destroyShader) <- createShader vertT fragT False
+
+  (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
+
+  pure
+    ( tex
+    , \params -> do
+        GL.viewport $= (GL.Position 0 0, GL.Size 640 480)
+        GL.clearColor $= GL.Color4 0 0 0 0
+
+        bindFBO
+        bindShader params
+        drawRect
+    , do
+        destroyFBO
+        destroyShader
+        destroyDrawRect
+    )
+  where
+    vertT = mconcat
+      [ "#version 460\n"
+      , "in vec3 a_pos;\n"
+      , "void main()\n"
+      , "{\n"
+      , "    gl_Position = vec4(a_pos, 1.0);\n"
+      , "}\n"
+      ]
+
+    fragT = T.unlines
+      [ "#version 460"
+      , "#include \"assets/lygia/generative/cnoise.glsl\""
+      , "out vec4 fragment;"
+      , "uniform vec3 foColor;\n"
+      , "void main()"
+      , "{"
+      , "  fragment = vec4(foColor, 1.);"
+      , "}"
+      ]
+
+--------------------------------------------------------------------------------
+
+data TestOpts = TestOpts
+  { u_tColor :: GL.Color3 Float
+  , u_tTime :: Float
+  } deriving Generic
+
+instance ShaderParam TestOpts where
   
 testrender :: IO (IO (), IO ())
 testrender = do
@@ -268,7 +339,7 @@ testrender = do
         GL.clearColor $= GL.Color4 0 0 0 0
 
         bindFBO
-        bindShader $ FillOpts (GL.Color3 1 1 1) t
+        bindShader $ TestOpts (GL.Color3 1 1 1) t
         drawRect
 
         blitToScreen
@@ -300,8 +371,8 @@ testrender = do
       [ "#version 460"
       , "#include \"assets/lygia/generative/cnoise.glsl\""
       , "out vec4 fragment;"
-      , "uniform vec3 u_foColor;\n"
-      , "uniform float u_foTime;\n"
+      , "uniform vec3 u_tColor;\n"
+      , "uniform float u_tTime;\n"
       , "in vec2 uv;"
       , "void main()"
       , "{"
@@ -309,8 +380,8 @@ testrender = do
       , "  float u_time = 123.;"
       , "  float u_scale = 0.2;"
       , "  float u_offset = 0.1;"
-      , "  float c = cnoise(vec3(uv * u_period, u_time + u_foTime)) * u_scale + u_offset;"
-      , "  fragment = vec4(u_foColor * c, 1.);"
+      , "  float c = cnoise(vec3(uv * u_period, u_time + u_tTime)) * u_scale + u_offset;"
+      , "  fragment = vec4(u_tColor * c, 1.);"
       , "}"
       ]
 
