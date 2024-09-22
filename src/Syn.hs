@@ -23,7 +23,6 @@ data SynF e v m next
   = Forever
   | View v next
   | forall a. Lift (m a) (a -> next)
-  | forall a n. Monad n => Hoist (forall b. n b -> m b) (forall b. m b -> n b) (Syn e v n a) (a -> next)
   | forall a. Finalize (m ()) (Syn e v m a) (a -> next)
   | forall a. On (e a) (a -> next)
   | forall a. Or (Syn e v m a) (Syn e v m a) (a -> next)
@@ -49,14 +48,10 @@ mapView _ (Syn (Pure a)) = Syn $ Pure a
 mapView _ (Syn (Free Forever)) = Syn $ Free Forever
 mapView f (Syn (Free (View u next))) = Syn $ Free $ View (f u) (unSyn $ mapView f $ Syn next)
 mapView f (Syn (Free (Lift m next))) = Syn $ Free $ Lift m (fmap (unSyn . mapView f . Syn) next)
-mapView f (Syn (Free (Hoist m n s next))) = Syn $ Free $ Hoist m n (mapView f s) (fmap (unSyn . mapView f . Syn) next)
 mapView f (Syn (Free (Finalize fin s next))) = Syn $ Free $ Finalize fin (mapView f s) (fmap (unSyn . mapView f . Syn) next)
 mapView f (Syn (Free (On e next))) = Syn $ Free $ On e (fmap (unSyn . mapView f . Syn) next)
 mapView f (Syn (Free (Or a b next))) = Syn $ Free $ Or (mapView f a) (mapView f b) (fmap (unSyn . mapView f . Syn) next)
 mapView f (Syn (Free (And a b next))) = Syn $ Free $ And (mapView f a) (mapView f b) (fmap (unSyn . mapView f . Syn) next)
-
-hoist :: Monad m => (forall b. m b -> n b) -> (forall b. n b -> m b) -> Syn e v m a -> Syn e v n a
-hoist f g s = Syn $ liftF $ Hoist f g s id
 
 forever :: Syn e v m a
 forever = Syn $ liftF Forever
@@ -99,26 +94,6 @@ unblock re (Syn (Free (View v next))) = pure $ V v (unblock re $ Syn next)
 unblock re (Syn (Free (Lift m next))) = do
   r <- m
   unblock re $ Syn $ next r
-
-unblock re (Syn (Free (Hoist h g s next))) = do
-  r <- h go0
-
-  case r of
-    P a        -> unblock undefined $ Syn $ next a
-    V v next'  -> pure $ _ $ V v (go next')
-
-  where
-    go0 = go $ unblock (fmap g re) s
-
-    go syn = do
-      r <- syn
-
-      case r of
-        P a        -> pure $ P a
-        V v next'  -> pure $ V v (go next')
-        B next'    -> pure $ B (go next')
-        F fs next' -> pure $ F fs (go next')
-        S          -> pure S
 
 unblock re (Syn (Free (Finalize fin s next))) = pure $ F [fin] (go $ unblock re s)
   where
