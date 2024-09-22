@@ -158,7 +158,7 @@ data ShaderAttribs = ShaderAttribs
   , sa_uv :: Maybe GL.AttribLocation
   }
 
-createShader :: Text -> Text -> Bool -> IO (ShaderAttribs, opts -> IO (), IO ())
+createShader :: ShaderParam p => Text -> Text -> Bool -> IO (ShaderAttribs, p -> IO (), IO ())
 createShader vertT fragT uv = do
   vertShader <- GL.createShader GL.VertexShader
   vertT' <- resolveGLSL vertT
@@ -184,10 +184,13 @@ createShader vertT fragT uv = do
   a_pos <- get $ GL.attribLocation program "a_pos"
   a_uv <- if uv then fmap Just $ get $ GL.attribLocation program "a_uv" else pure Nothing
 
-  return (ShaderAttribs { sa_pos = a_pos, sa_uv = a_uv }, bind program, destroy vertShader fragShader program)
+  set <- shaderParam program
+
+  return (ShaderAttribs { sa_pos = a_pos, sa_uv = a_uv }, bind program set, destroy vertShader fragShader program)
     where
-      bind program opts = do
+      bind program setParams params = do
         GL.currentProgram $= Just program
+        setParams params
 
       destroy vertShader fragShader program = do
         GL.deleteObjectName vertShader
