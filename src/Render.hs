@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -10,6 +11,7 @@ import Control.Monad
 import qualified Data.ByteString as B
 import Data.ByteString (ByteString)
 import Data.Foldable
+import Data.IORef
 import Data.ObjectName
 import Data.StateVar
 import qualified Data.Text as T
@@ -27,6 +29,7 @@ import qualified Graphics.Rendering.OpenGL as GL
 
 import Syn.Run
 
+import GHC.Generics
 import GHC.Int
 import GHC.Word
 
@@ -39,8 +42,7 @@ import Debug.Trace
 
 data Out = Out
   { outTex :: Word32
-  , outRender :: Frame -> IO ()
-  , outDestroy :: IO ()
+  , outRender :: IO ()
   }
 
 data CompositeOpts = CompositeOpts
@@ -50,9 +52,6 @@ data CompositeOpts = CompositeOpts
   , coptsA :: Syn Out IO ()
   , coptsB :: Syn Out IO ()
   }
-
-with1 :: Storable a => (Ptr a -> IO ()) -> IO a
-with1 f = alloca $ \r -> f r >> peek r
 
 composite :: CompositeOpts -> Syn Out IO ()
 composite opts = do
@@ -73,11 +72,9 @@ composite opts = do
   where
     combine fbo tex (Just aOut, Just bOut) = Out
       { outTex = tex
-      , outRender = \frame -> do
-          outRender aOut frame
-          outRender bOut frame
-          -- glBindFramebuffer GL_FRAMEBUFFER fbo
-      , outDestroy = undefined
+      , outRender = do
+          outRender aOut
+          outRender bOut
       }
 
 fi :: (Integral a, Num b) => a -> b
@@ -86,8 +83,10 @@ fi = fromIntegral
 fsz :: Int
 fsz = sizeOf (undefined :: GL.GLfloat)
 
-createRectBuffer :: IO GL.BufferObject
-createRectBuffer = do
+data RectBuffer = RectBuffer GL.BufferObject
+
+createRectBuffer :: IO RectBuffer
+createRectBuffer = RectBuffer <$> do
   buf <- genObjectName
   GL.bindBuffer GL.ArrayBuffer $= Just buf
   withArrayLen verts $ \len ptr -> GL.bufferData GL.ArrayBuffer $= (fi (len * fsz), ptr, GL.StaticDraw)
@@ -107,8 +106,8 @@ createRectBuffer = do
       ,  1,  1, 0,   1, 1
       ]
 
-createDrawRect :: GL.BufferObject -> ShaderAttribs -> IO (IO (), IO ())
-createDrawRect buf sattrs = do
+createDrawRect :: RectBuffer -> ShaderAttribs -> IO (IO (), IO ())
+createDrawRect (RectBuffer buf) sattrs = do
   vao <- genObjectName
   GL.bindVertexArrayObject $= Just vao
 
@@ -128,7 +127,7 @@ createDrawRect buf sattrs = do
       GL.bindVertexArrayObject $= Just vao
       GL.drawArrays GL.Triangles 0 6
 
-createFramebuffer :: Int32 -> Int32 -> GL.PixelInternalFormat -> GL.Clamping -> IO (IO (), IO ())
+createFramebuffer :: Int32 -> Int32 -> GL.PixelInternalFormat -> GL.Clamping -> IO (GL.TextureObject, IO (), IO ())
 createFramebuffer width height ifmt clamp = do
   fbo <- genObjectName
   tex <- genObjectName
@@ -142,7 +141,7 @@ createFramebuffer width height ifmt clamp = do
   GL.bindFramebuffer GL.Framebuffer $= fbo
   GL.framebufferTexture2D GL.Framebuffer (GL.ColorAttachment 0) GL.Texture2D tex 0
 
-  pure (bind fbo, destroy fbo tex)
+  pure (tex, bind fbo, destroy fbo tex)
 
   where
     bind fbo = do
@@ -197,49 +196,60 @@ createShader vertT fragT uv = do
         GL.deleteObjectName fragShader
         GL.deleteObjectName program
 
-testrender2 :: IO (IO ())
-testrender2 = do
-  GL.debugMessageCallback $= Just dbg
+data Op1 p = Op1 GL.TextureObject p
 
-  vertShader <- GL.createShader GL.VertexShader
-  GL.shaderSourceBS vertShader $= vertShaderText
-  GL.compileShader vertShader
+instance ShaderParam p => ShaderParam (Op1 p) where
+  shaderParam program = do
+    loc <- GL.uniformLocation program "u_tex"
+    set <- shaderParam program
 
-  fragShader <- GL.createShader GL.FragmentShader
-  fragShaderText' <- resolveGLSL fragShaderText
-  GL.shaderSourceBS fragShader $= T.encodeUtf8 fragShaderText'
-  GL.compileShader fragShader
+    pure $ \(Op1 tex p) -> do
+      GL.activeTexture $= GL.TextureUnit 0
+      GL.textureBinding GL.Texture2D $= Just tex
+      GL.uniform loc $= GL.TextureUnit 0
 
-  program <- GL.createProgram
-  GL.attachShader program vertShader
-  GL.attachShader program fragShader
-  GL.linkProgram program
+      set p
 
-  ls <- GL.linkStatus program
+data Op2 p = Op2 GL.TextureObject GL.TextureObject p
 
-  when (not ls) $ do
-    ilog <- GL.programInfoLog program
-    error $ "createShader: " <> ilog
+instance ShaderParam p => ShaderParam (Op2 p) where
+  shaderParam program = do
+    loc1 <- GL.uniformLocation program "u_tex1"
+    loc2 <- GL.uniformLocation program "u_tex2"
+    set <- shaderParam program
 
-  a_pos <- get $ GL.attribLocation program "a_pos"
-  a_uv <- get $ GL.attribLocation program "a_uv"
+    pure $ \(Op2 tex1 tex2 p) -> do
+      GL.activeTexture $= GL.TextureUnit 0
+      GL.textureBinding GL.Texture2D $= Just tex1
+      GL.uniform loc1 $= GL.TextureUnit 0
 
-  rectBuf <- createRectBuffer
-  (drawRect, _) <- createDrawRect rectBuf (ShaderAttribs a_pos (Just a_uv))
+      GL.activeTexture $= GL.TextureUnit 1
+      GL.textureBinding GL.Texture2D $= Just tex2
+      GL.uniform loc2 $= GL.TextureUnit 1
 
-  pure $ do
-    GL.viewport $= (GL.Position 0 0, GL.Size 640 480)
-    GL.clearColor $= GL.Color4 0 0 0 0
+      set p
 
-    GL.currentProgram $= Just program
-    drawRect
+blit :: RectBuffer -> GL.TextureObject -> GL.Size -> IO (IO (), IO ())
+blit rectBuf tex viewport = do
+  (attribs, bindShader, destroyShader) <- createShader vertT fragT True
+  (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
+
+  pure
+    ( do
+        GL.viewport $= (GL.Position 0 0, viewport)
+        GL.clearColor $= GL.Color4 0 0 0 0
+
+        GL.bindFramebuffer GL.Framebuffer $= GL.defaultFramebufferObject
+
+        bindShader $ Op1 tex ()
+        drawRect
+
+    , do
+        destroyShader
+        destroyDrawRect
+    ) 
   where
-    dbg msg@(GL.DebugMessage _ _ _ severity _) = do
-      case severity of
-        GL.DebugSeverityNotification -> pure ()
-        _ -> traceIO $ show msg
-
-    vertShaderText = mconcat
+    vertT = mconcat
       [ "#version 460\n"
       , "in vec3 a_pos;\n"
       , "in vec2 a_uv;\n"
@@ -251,10 +261,82 @@ testrender2 = do
       , "}\n"
       ]
 
-    fragShaderText = T.unlines
+    fragT = T.unlines
+      [ "#version 460"
+      , "uniform sampler2D u_op1Tex;\n"
+      , "in vec2 uv;"
+      , "out vec4 fragment;"
+      , "void main()"
+      , "{"
+      , "  fragment = texture2D(u_op1Tex, uv);"
+      , "}"
+      ]
+
+data FillOpts = FillOpts
+  { u_foColor :: GL.Color3 Float
+  , u_foTime :: Float
+  } deriving Generic
+
+instance ShaderParam FillOpts where
+  
+testrender2 :: IO (IO (), IO ())
+testrender2 = do
+  GL.debugMessageCallback $= Just dbg
+  rectBuf <- createRectBuffer
+
+  ---
+
+  (tex, bindFBO, destroyFBO) <- createFramebuffer 512 512 GL.RGBA8 GL.ClampToEdge
+  (attribs, bindShader, destroyShader) <- createShader vertT fragT True
+
+  (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
+
+  (blitToScreen, destroyBlit) <- blit rectBuf tex (GL.Size 640 480)
+
+  ref <- newIORef 0
+
+  pure
+    ( do
+        t <- atomicModifyIORef ref $ \t' -> (t' + 0.01, t')
+
+        GL.viewport $= (GL.Position 0 0, GL.Size 640 480)
+        GL.clearColor $= GL.Color4 0 0 0 0
+
+        bindFBO
+        bindShader $ FillOpts (GL.Color3 1 1 1) t
+        drawRect
+
+        blitToScreen
+    , do
+        destroyFBO
+        destroyShader
+        destroyDrawRect
+        destroyBlit
+    )
+  where
+    dbg msg@(GL.DebugMessage _ _ _ severity _) = do
+      case severity of
+        GL.DebugSeverityNotification -> pure ()
+        _ -> traceIO $ show msg
+
+    vertT = mconcat
+      [ "#version 460\n"
+      , "in vec3 a_pos;\n"
+      , "in vec2 a_uv;\n"
+      , "out vec2 uv;\n"
+      , "void main()\n"
+      , "{\n"
+      , "    gl_Position = vec4(a_pos, 1.0);\n"
+      , "    uv = a_uv;\n"
+      , "}\n"
+      ]
+
+    fragT = T.unlines
       [ "#version 460"
       , "#include \"assets/lygia/generative/cnoise.glsl\""
       , "out vec4 fragment;"
+      , "uniform vec3 u_foColor;\n"
+      , "uniform float u_foTime;\n"
       , "in vec2 uv;"
       , "void main()"
       , "{"
@@ -262,8 +344,8 @@ testrender2 = do
       , "  float u_time = 123.;"
       , "  float u_scale = 0.2;"
       , "  float u_offset = 0.1;"
-      , "  float c = cnoise(vec3(uv * u_period, u_time)) * u_scale + u_offset;"
-      , "  fragment = vec4(c, c, c, 1.);"
+      , "  float c = cnoise(vec3(uv * u_period, u_time + u_foTime)) * u_scale + u_offset;"
+      , "  fragment = vec4(u_foColor * c, 1.);"
       , "}"
       ]
 

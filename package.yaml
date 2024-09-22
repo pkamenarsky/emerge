@@ -25,6 +25,7 @@ dependencies:
 - filepath
 - free
 - GLFW-b
+- machines
 - ObjectName
 - OpenGL
 - StateVar

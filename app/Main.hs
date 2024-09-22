@@ -22,7 +22,7 @@ main = do
     (traverse_ GLFW.destroyWindow)
     $ \mWin -> do
          GLFW.makeContextCurrent mWin
-         render <- testrender2
+         (render, _) <- testrender2
          for_ mWin (go render)
 
   putStrLn "bye..."

@@ -46,6 +46,7 @@ library
     , bytestring
     , filepath
     , free
+    , machines
     , stm
     , text
     , transformers
@@ -70,6 +71,7 @@ executable emerge-exe
     , emerge
     , filepath
     , free
+    , machines
     , stm
     , text
     , transformers
@@ -95,6 +97,7 @@ test-suite emerge-test
     , emerge
     , filepath
     , free
+    , machines
     , stm
     , text
     , transformers

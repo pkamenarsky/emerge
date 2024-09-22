@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -64,6 +65,13 @@ instance (KnownSymbol name, GL.Uniform a) => GShaderParam (M1 S ('MetaSel ('Just
 
 class ShaderParam a where
   shaderParam :: GL.Program -> IO (a -> IO ())
+  default shaderParam :: Generic a => GShaderParam (Rep a) => GL.Program -> IO (a -> IO ())
+  shaderParam program = do
+    set <- gShaderParam defaultShaderParamDeriveOpts program
+    pure $ \a -> set (from a)
+
+-- For shaders without uniforms
+instance ShaderParam ()
 
 genericShaderParam :: Generic a => GShaderParam (Rep a) => ShaderParamDeriveOpts -> GL.Program -> IO (a -> IO ())
 genericShaderParam opts program = do
