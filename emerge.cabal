@@ -29,6 +29,7 @@ library
       Syn
       Syn.Run
       Syn.Threads
+      Types
   other-modules:
       Paths_emerge
   autogen-modules:

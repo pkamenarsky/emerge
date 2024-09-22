@@ -5,6 +5,7 @@ module Render where
 
 import Control.Applicative
 import Control.Concurrent.MVar
+import Control.Monad
 
 import qualified Data.ByteString as B
 import Data.ByteString (ByteString)
@@ -32,10 +33,9 @@ import GHC.Word
 import System.FilePath ((</>))
 import qualified System.FilePath as Path
 
-import Debug.Trace
+import Types
 
-newtype Frame = Frame Int
-  deriving (Eq, Ord)
+import Debug.Trace
 
 data Out = Out
   { outTex :: Word32
@@ -107,19 +107,19 @@ createRectBuffer = do
       ,  1,  1, 0,   1, 1
       ]
 
-createDrawRect :: GL.BufferObject -> GL.AttribLocation -> Maybe (GL.AttribLocation) -> IO (IO (), IO ())
-createDrawRect buf vLoc uvLoc = do
+createDrawRect :: GL.BufferObject -> ShaderAttribs -> IO (IO (), IO ())
+createDrawRect buf sattrs = do
   vao <- genObjectName
   GL.bindVertexArrayObject $= Just vao
 
   GL.bindBuffer GL.ArrayBuffer $= Just buf
 
-  GL.vertexAttribArray vLoc $= GL.Enabled
-  GL.vertexAttribPointer vLoc $= (GL.ToFloat, GL.VertexArrayDescriptor 3 GL.Float (fi (5 * fsz)) nullPtr)
+  GL.vertexAttribArray (sa_pos sattrs) $= GL.Enabled
+  GL.vertexAttribPointer (sa_pos sattrs) $= (GL.ToFloat, GL.VertexArrayDescriptor 3 GL.Float (fi (5 * fsz)) nullPtr)
 
-  for_ uvLoc $ \uvLoc' -> do
-    GL.vertexAttribArray uvLoc' $= GL.Enabled
-    GL.vertexAttribPointer uvLoc' $= (GL.ToFloat, GL.VertexArrayDescriptor 2 GL.Float (fi (5 * fsz)) (nullPtr `plusPtr` (3 * fsz)))
+  for_ (sa_uv sattrs) $ \sa_uv' -> do
+    GL.vertexAttribArray sa_uv' $= GL.Enabled
+    GL.vertexAttribPointer sa_uv' $= (GL.ToFloat, GL.VertexArrayDescriptor 2 GL.Float (fi (5 * fsz)) (nullPtr `plusPtr` (3 * fsz)))
 
   pure (render vao, deleteObjectName vao)
 
@@ -153,6 +153,47 @@ createFramebuffer width height ifmt clamp = do
       deleteObjectName fbo
       deleteObjectName tex
 
+data ShaderAttribs = ShaderAttribs
+  { sa_pos :: GL.AttribLocation
+  , sa_uv :: Maybe GL.AttribLocation
+  }
+
+createShader :: Text -> Text -> Bool -> IO (ShaderAttribs, opts -> IO (), IO ())
+createShader vertT fragT uv = do
+  vertShader <- GL.createShader GL.VertexShader
+  vertT' <- resolveGLSL vertT
+  GL.shaderSourceBS vertShader $= T.encodeUtf8 vertT'
+  GL.compileShader vertShader
+
+  fragShader <- GL.createShader GL.FragmentShader
+  fragT' <- resolveGLSL fragT
+  GL.shaderSourceBS fragShader $= T.encodeUtf8 fragT'
+  GL.compileShader fragShader
+
+  program <- GL.createProgram
+  GL.attachShader program vertShader
+  GL.attachShader program fragShader
+  GL.linkProgram program
+
+  ls <- GL.linkStatus program
+
+  when (not ls) $ do
+    ilog <- GL.programInfoLog program
+    error $ "createShader: " <> ilog
+
+  a_pos <- get $ GL.attribLocation program "a_pos"
+  a_uv <- if uv then fmap Just $ get $ GL.attribLocation program "a_uv" else pure Nothing
+
+  return (ShaderAttribs { sa_pos = a_pos, sa_uv = a_uv }, bind program, destroy vertShader fragShader program)
+    where
+      bind program opts = do
+        GL.currentProgram $= Just program
+
+      destroy vertShader fragShader program = do
+        GL.deleteObjectName vertShader
+        GL.deleteObjectName fragShader
+        GL.deleteObjectName program
+
 testrender2 :: IO (IO ())
 testrender2 = do
   GL.debugMessageCallback $= Just dbg
@@ -171,13 +212,17 @@ testrender2 = do
   GL.attachShader program fragShader
   GL.linkProgram program
 
-  GL.programInfoLog program >>= print
+  ls <- GL.linkStatus program
 
-  vPos <- get $ GL.attribLocation program "vPos"
-  vUV <- get $ GL.attribLocation program "vUV"
+  when (not ls) $ do
+    ilog <- GL.programInfoLog program
+    error $ "createShader: " <> ilog
+
+  a_pos <- get $ GL.attribLocation program "a_pos"
+  a_uv <- get $ GL.attribLocation program "a_uv"
 
   rectBuf <- createRectBuffer
-  (drawRect, _) <- createDrawRect rectBuf vPos (Just vUV)
+  (drawRect, _) <- createDrawRect rectBuf (ShaderAttribs a_pos (Just a_uv))
 
   pure $ do
     GL.viewport $= (GL.Position 0 0, GL.Size 640 480)
@@ -193,13 +238,13 @@ testrender2 = do
 
     vertShaderText = mconcat
       [ "#version 460\n"
-      , "in vec3 vPos;\n"
-      , "in vec2 vUV;\n"
+      , "in vec3 a_pos;\n"
+      , "in vec2 a_uv;\n"
       , "out vec2 uv;\n"
       , "void main()\n"
       , "{\n"
-      , "    gl_Position = vec4(vPos, 1.0);\n"
-      , "    uv = vUV;\n"
+      , "    gl_Position = vec4(a_pos, 1.0);\n"
+      , "    uv = a_uv;\n"
       , "}\n"
       ]
 
