@@ -1,7 +1,7 @@
 {-# LANGUAGE RankNTypes #-}
 
-import Syn
-import qualified SynT
+import Syn.Run
+import qualified Syn.Threads as SynT
 
 import Control.Applicative
 import Control.Concurrent

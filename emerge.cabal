@@ -27,7 +27,8 @@ library
   exposed-modules:
       Render
       Syn
-      SynT
+      Syn.Run
+      Syn.Threads
   other-modules:
       Paths_emerge
   autogen-modules:

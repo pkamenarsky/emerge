@@ -24,7 +24,7 @@ import Foreign.Storable
 
 import qualified Graphics.Rendering.OpenGL as GL
 
-import Syn
+import Syn.Run
 
 import GHC.Int
 import GHC.Word
@@ -47,14 +47,14 @@ data CompositeOpts = CompositeOpts
   { coptsMode :: Int
   , coptsWidth :: Int32
   , coptsHeight :: Int32
-  , coptsA :: Syn Out ()
-  , coptsB :: Syn Out ()
+  , coptsA :: Syn Out IO ()
+  , coptsB :: Syn Out IO ()
   }
 
 with1 :: Storable a => (Ptr a -> IO ()) -> IO a
 with1 f = alloca $ \r -> f r >> peek r
 
-composite :: CompositeOpts -> Syn Out ()
+composite :: CompositeOpts -> Syn Out IO ()
 composite opts = do
 --   (fbo, tex) <- unsafeNonBlockingIO $ do
 --     fbo <- with1 $ glCreateFramebuffers 1

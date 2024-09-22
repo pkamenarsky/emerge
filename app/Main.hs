@@ -35,8 +35,10 @@ main = do
       GLFW.swapBuffers win
       GLFW.waitEvents
 
+      esc <- GLFW.getKey win GLFW.Key'Escape
+
       close <- GLFW.windowShouldClose win
 
-      if close
+      if close || esc == GLFW.KeyState'Pressed
         then pure ()
         else go render win

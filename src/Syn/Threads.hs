@@ -4,7 +4,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE StandaloneDeriving #-}
 
-module SynT where
+module Syn.Threads where
 
 import Control.Applicative
 import Control.Concurrent hiding (yield)
