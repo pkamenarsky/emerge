@@ -32,8 +32,8 @@ on e@(Event ref) = unsafeNonBlockingIO (readIORef ref) >>= \case
 
 --------------------------------------------------------------------------------
 
-run :: Monoid v => Syn v IO Void -> (v -> IO ()) -> IO (Maybe (Event a -> a -> IO ()))
-run syn showView = do
+animate :: Monoid v => Syn v IO Void -> (v -> IO ()) -> IO (Maybe (Event a -> a -> IO ()))
+animate syn showView = do
   (next, v) <- unblock $ reinterpret syn
 
   for_ v showView

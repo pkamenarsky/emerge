@@ -67,30 +67,30 @@ unsafeNonBlockingIO io = lift $ liftIO io
 
 --------------------------------------------------------------------------------
 
-data YF v m next
+data RunF v m next
   = YV v next
   | forall a. YA (m a) (a -> next)
   | YB next
   | YF [m ()] next
 
-deriving instance Functor (YF v m)
+deriving instance Functor (RunF v m)
 
-newtype Y v m a = Y { unY :: Free (YF v m) a }
+newtype Run v m a = Run { run :: Free (RunF v m) a }
   deriving (Functor, Applicative, Monad)
 
-yv :: v -> Y v m ()
-yv v = Y $ liftF $ YV v ()
+yv :: v -> Run v m ()
+yv v = Run $ liftF $ YV v ()
 
-ya :: m a -> Y v m a
-ya act = Y $ liftF $ YA act id
+ya :: m a -> Run v m a
+ya act = Run $ liftF $ YA act id
 
-yb :: Y v m ()
-yb = Y $ liftF $ YB ()
+yb :: Run v m ()
+yb = Run $ liftF $ YB ()
 
-yf :: [m ()] -> Y v m ()
-yf fins = Y $ liftF $ YF fins ()
+yf :: [m ()] -> Run v m ()
+yf fins = Run $ liftF $ YF fins ()
 
-reinterpret :: Monad m => Monoid v => Syn v m a -> Y v m a
+reinterpret :: Monad m => Monoid v => Syn v m a -> Run v m a
 
 reinterpret (Syn (Pure a)) = pure a
 
@@ -100,7 +100,7 @@ reinterpret (Syn (Free (Lift act next))) = ya act >>= reinterpret . Syn . next
 
 reinterpret (Syn (Free (Finalize fin syn next))) = do
   yf [fin]
-  go (unY $ reinterpret syn)
+  go (run $ reinterpret syn)
   where
     go y = do
       case y of
@@ -113,7 +113,7 @@ reinterpret (Syn (Free (Finalize fin syn next))) = do
         Free (YB next')    -> yb >> go next'
         Free (YF fs next') -> yf (fin:fs) >> go next'
 
-reinterpret (Syn (Free (Or a b next))) = go [] [] (unY $ reinterpret a) (unY $ reinterpret b) mempty mempty
+reinterpret (Syn (Free (Or a b next))) = go [] [] (run $ reinterpret a) (run $ reinterpret b) mempty mempty
   where
     go aFins bFins aY bY aPrV bPrV = case (aY, bY) of
       -- finalizers
@@ -144,7 +144,7 @@ reinterpret (Syn (Free (Or a b next))) = go [] [] (unY $ reinterpret a) (unY $ r
       -- both blocked
       (Free (YB aNext), Free (YB bNext)) -> yb >> go aFins bFins aNext bNext aPrV bPrV
 
-reinterpret (Syn (Free (And a b next))) = go [] [] (unY $ reinterpret a) (unY $ reinterpret b) mempty mempty
+reinterpret (Syn (Free (And a b next))) = go [] [] (run $ reinterpret a) (run $ reinterpret b) mempty mempty
   where
     go aFins bFins aY bY aPrV bPrV = case (aY, bY) of
       -- finalizers
@@ -175,13 +175,13 @@ reinterpret (Syn (Free (And a b next))) = go [] [] (unY $ reinterpret a) (unY $ 
       (Free (YB aNext), x@(Pure _)) -> yb >> go aFins bFins aNext x aPrV bPrV
       (x@(Pure _), Free (YB bNext)) -> yb >> go aFins bFins x bNext aPrV bPrV
 
-unblock :: Monad m => Y v m Void -> m (Y v m Void, Maybe v)
-unblock = go [] . unY
+unblock :: Monad m => Run v m Void -> m (Run v m Void, Maybe v)
+unblock = go [] . run
   where
     go _fs y = case y of
         Pure _             -> undefined -- unreachable
-        Free (YV v next)   -> pure (Y next, Just v)
-        Free (YB next)     -> pure (Y next, Nothing)
+        Free (YV v next)   -> pure (Run next, Just v)
+        Free (YB next)     -> pure (Run next, Nothing)
         Free (YA act next) -> act >>= go _fs . next
         Free (YF fs next)  -> go fs next
 
@@ -196,12 +196,12 @@ newtype A m a = A { unA :: Free (AF m) a }
 
 data SynA m a b = SynA { unSynA :: a -> A m (b, SynA m a b) }
 
-toArr :: Applicative m => Y v m Void -> SynA m () v
-toArr (Y (Pure _)) = undefined -- unreachable
-toArr (Y (Free (YV v next))) = SynA $ \() -> pure (v, toArr $ Y next)
-toArr (Y (Free (YA act next))) = SynA $ \() -> A $ Free $ AA act $ fmap (unA . ($ ()) . unSynA . toArr . Y) next
-toArr (Y (Free (YB next))) = SynA $ \() -> A $ Free $ AB $ unA $ unSynA (toArr $ Y next) ()
-toArr (Y (Free (YF fins next))) = SynA $ \() -> A $ Free $ AF fins $ unA $ unSynA (toArr $ Y next) ()
+toArr :: Applicative m => Run v m Void -> SynA m () v
+toArr (Run (Pure _)) = undefined -- unreachable
+toArr (Run (Free (YV v next))) = SynA $ \() -> pure (v, toArr $ Run next)
+toArr (Run (Free (YA act next))) = SynA $ \() -> A $ Free $ AA act $ fmap (unA . ($ ()) . unSynA . toArr . Run) next
+toArr (Run (Free (YB next))) = SynA $ \() -> A $ Free $ AB $ unA $ unSynA (toArr $ Run next) ()
+toArr (Run (Free (YF fins next))) = SynA $ \() -> A $ Free $ AF fins $ unA $ unSynA (toArr $ Run next) ()
 
 fromArr :: Monad m => SynA m () v -> Syn v m a
 fromArr synA = case unA $ unSynA synA () of
