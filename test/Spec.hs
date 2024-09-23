@@ -64,7 +64,6 @@ test = do
   fire e ()
   fire e ()
   fire e ()
-  fire e ()
 
 test2 :: IO ()
 test2 = do
@@ -78,7 +77,6 @@ test2 = do
   fire e ()
   fire e ()
   fire e ()
-  fire e ()
 
 main :: IO ()
 main = do
@@ -86,7 +84,6 @@ main = do
   e <- newEvent :: IO (Event ())
   Just fire <- run (s1 e) (writeIORef ref)
 
-  fire e ()
   cmp ref "AAC"
   fire e ()
   cmp ref "RRS"

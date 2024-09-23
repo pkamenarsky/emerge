@@ -24,7 +24,10 @@ newEvent = Event <$> newIORef Nothing
 on :: MonadIO m => Event a -> Syn v m a
 on e@(Event ref) = unsafeNonBlockingIO (readIORef ref) >>= \case
   Nothing -> Syn $ Free $ Blocked $ unSyn $ on e
-  Just a -> pure a
+
+  -- block here, otherwise something like `on e >> on e >> on e` will run to
+  -- completion in one go; see [0]
+  Just a  -> Syn $ Free $ Blocked $ pure a
 
 --------------------------------------------------------------------------------
 
@@ -43,15 +46,19 @@ run syn showView = do
 
       pure $ Just $ \(Event ref) a -> do
         v' <- modifyMVar mvSyn $ \s -> do
+
           writeIORef ref (Just a)
-
-          r' <- Syn.unblockAll s
-
-          s' <- case r' of
-            Left _    -> error "blocked indefinitely/finished" -- TODO
-            Right r'' -> pure r''
-
+          s' <- Syn.unblockAll s
           writeIORef ref Nothing
-          pure s'
+
+          case s' of
+            Left _    -> error "blocked indefinitely/finished" -- TODO
+            Right (s'', Nothing) -> do
+              -- [0]: blocked; unblock potential `Blocked (Pure _)` expressions
+              s''' <- Syn.unblockAll s''
+              case s''' of
+                Left _    -> error "blocked indefinitely/finished" -- TODO
+                Right r'  -> pure r'
+            Right r'@(_, Just _) -> pure r'
 
         for_ v' showView
