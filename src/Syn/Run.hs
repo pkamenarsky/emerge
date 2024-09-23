@@ -34,7 +34,7 @@ on e@(Event ref) = unsafeNonBlockingIO (readIORef ref) >>= \case
 
 run :: Monoid v => Syn v IO Void -> (v -> IO ()) -> IO (Maybe (Event a -> a -> IO ()))
 run syn showView = do
-  (next, v) <- unblock $ step syn
+  (next, v) <- unblock $ reinterpret syn
 
   for_ v showView
 
@@ -49,8 +49,7 @@ run syn showView = do
 
       case v' of
         -- [0]: blocked; unblock potential `Blocked (Pure _)` expressions
-        Nothing -> do
-          unblock next'
-        Just _ -> pure (next', v')
+        Nothing -> unblock next'
+        Just _  -> pure (next', v')
 
     for_ v' showView

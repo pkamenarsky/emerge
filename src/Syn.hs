@@ -67,114 +67,6 @@ unsafeNonBlockingIO io = lift $ liftIO io
 
 --------------------------------------------------------------------------------
 
-data SynR v m a
-  = P a                       -- pure
-  | V v (m (SynR v m a))      -- view
-  | B (m (SynR v m a))        -- blocked
-  | F [m ()] (m (SynR v m a)) -- finalizer
-
-step :: Monad m => Monoid v => Syn v m a -> m (SynR v m a)
-
-step (Syn (Pure a))           = pure $ P a
-
-step (Syn (Free (View v next)))  = pure $ V v $ step $ Syn next
-step (Syn (Free (Blocked next))) = pure $ B $ step $ Syn next
-
-step (Syn (Free (Lift m next))) = do
-  r <- m
-  step $ Syn $ next r
-
-step (Syn (Free (Finalize fin s next))) = pure $ F [fin] $ go $ step s
-  where
-    go syn = do
-      r <- syn
-
-      case r of
-        P a -> do
-          fin
-          pure $ F [] $ step $ Syn $ next a
-        V v next'  -> pure $ V v (go next')
-        B next'    -> pure $ B (go next')
-        F fs next' -> pure $ F (fin:fs) (go next')
-        -- S          -> pure S
-
-step (Syn (Free (Or a b next))) = go [] [] (step a) (step b) mempty mempty
-  where
-    go aFins bFins aSyn bSyn aPrV bPrV = do
-      a' <- aSyn
-      b' <- bSyn
-
-      case (a', b') of
-        -- finalizers
-        (F fs next', s) -> pure $ F (fs <> bFins) $ go fs bFins next' (pure s) aPrV bPrV
-        (s, F fs next') -> pure $ F (aFins <> fs) $ go aFins fs (pure s) next' aPrV bPrV
-
-        -- one finished
-        (P r, _) -> do
-          sequence_ bFins
-          pure $ F [] $ step $ Syn $ next r
-        (_, P r) -> do
-          sequence_ aFins
-          pure $ F [] $ step $ Syn $ next r
-
-        -- both views
-        (V aV aNext, V bV bNext) -> pure $ V (aV <> bV) (go aFins bFins aNext bNext aV bV)
-
-        -- one view
-        (V aV aNext, B bNext) -> pure $ V (aV <> bPrV) (go aFins bFins aNext bNext aV bPrV)
-        (B aNext, V bV bNext) -> pure $ V (aPrV <> bV) (go aFins bFins aNext bNext aPrV bV)
-
-        -- both blocked
-        (B aNext, B bNext) -> pure $ B $ go aFins bFins aNext bNext aPrV bPrV
-
-step (Syn (Free (And a b next))) = go [] [] (step a) (step b) mempty mempty
-  where
-    go aFins bFins aSyn bSyn aPrV bPrV = do
-      a' <- aSyn
-      b' <- bSyn
-
-      case (a', b') of
-        -- finalizers
-        (F fs next', s) -> pure $ F (fs <> bFins) $ go fs bFins next' (pure s) aPrV bPrV
-        (s, F fs next') -> pure $ F (aFins <> fs) $ go aFins fs (pure s) next' aPrV bPrV
-
-        -- both finished
-        (P aR, P bR) -> step $ Syn $ next (aR <> bR)
-
-        -- both views
-        (V aV aNext, V bV bNext) -> pure $ V (aV <> bV) (go aFins bFins aNext bNext aV bV)
-
-        -- left view, remaining variants
-        (V aV aNext, B bNext) -> pure $ V (aV <> bPrV) (go aFins bFins aNext bNext aV bPrV)
-        (V aV aNext, s)       -> pure $ V (aV <> bPrV) (go aFins bFins aNext (pure s) aV bPrV)
-
-        -- right view, remaining variants
-        (B aNext, V bV bNext)  -> pure $ V (aPrV <> bV) (go aFins bFins aNext bNext aPrV bV)
-        (s, V bV bNext)        -> pure $ V (aPrV <> bV) (go aFins bFins (pure s) bNext aPrV bV)
-
-        -- both blocked
-        (B aNext, B bNext) -> pure $ B $ go aFins bFins aNext bNext aPrV bPrV
-
-        -- one blocked, the other finished
-        (B aNext, p@(P _)) -> pure $ B $ go aFins bFins aNext (pure p) aPrV bPrV
-        (p@(P _), B bNext) -> pure $ B $ go aFins bFins (pure p) bNext aPrV bPrV
-
---------------------------------------------------------------------------------
-
-unblock :: Monad m => m (SynR v m Void) -> m (m (SynR v m Void), Maybe v)
-unblock = go []
-  where
-    go _fs s = do
-      r <- s
-
-      case r of
-        P _        -> undefined -- unreachable
-        V v next   -> pure (next, Just v)
-        B next     -> pure (next, Nothing)
-        F fs next  -> go fs next
-
---------------------------------------------------------------------------------
-
 data YF v m next
   = YV v next
   | forall a. YA (m a) (a -> next)
@@ -252,7 +144,7 @@ reinterpret (Syn (Free (Or a b next))) = go [] [] (unY $ reinterpret a) (unY $ r
       -- both blocked
       (Free (YB aNext), Free (YB bNext)) -> yb >> go aFins bFins aNext bNext aPrV bPrV
 
-reinterpret (Syn (Free (And a b next))) = go [] [] (unY $ reinterpret a) (unY $ reinterpret b) undefined undefined
+reinterpret (Syn (Free (And a b next))) = go [] [] (unY $ reinterpret a) (unY $ reinterpret b) mempty mempty
   where
     go aFins bFins aY bY aPrV bPrV = case (aY, bY) of
       -- finalizers
@@ -270,15 +162,28 @@ reinterpret (Syn (Free (And a b next))) = go [] [] (unY $ reinterpret a) (unY $ 
       (Free (YV aV aNext), Free (YV bV bNext)) -> yv (aV <> bV) >> go aFins bFins aNext bNext aV bV
 
       -- one view
-      (Free (YV aV aNext), x) -> yv (aV <> bPrV) >> go aFins bFins aNext x aV bPrV
-      (x, Free (YV bV bNext)) -> yv (aPrV <> bV) >> go aFins bFins x bNext aPrV bV
+      (Free (YV aV aNext), Free (YB bNext)) -> yv (aV <> bPrV) >> go aFins bFins aNext bNext aV bPrV
+      (Free (YV aV aNext), x@(Pure _))      -> yv (aV <> bPrV) >> go aFins bFins aNext x aV bPrV
+
+      (Free (YB aNext), Free (YV bV bNext)) -> yv (aPrV <> bV) >> go aFins bFins aNext bNext aPrV bV
+      (x@(Pure _), Free (YV bV bNext))      -> yv (aPrV <> bV) >> go aFins bFins x bNext aPrV bV
 
       -- both blocked
       (Free (YB aNext), Free (YB bNext)) -> yb >> go aFins bFins aNext bNext aPrV bPrV
 
       -- one blocked, the other finished
-      (Free (YB aNext), p@(Pure _)) -> yb >> go aFins bFins aNext p aPrV bPrV
-      (p@(Pure _), Free (YB bNext)) -> yb >> go aFins bFins p bNext aPrV bPrV
+      (Free (YB aNext), x@(Pure _)) -> yb >> go aFins bFins aNext x aPrV bPrV
+      (x@(Pure _), Free (YB bNext)) -> yb >> go aFins bFins x bNext aPrV bPrV
+
+unblock :: Monad m => Y v m Void -> m (Y v m Void, Maybe v)
+unblock = go [] . unY
+  where
+    go _fs y = case y of
+        Pure _             -> undefined -- unreachable
+        Free (YV v next)   -> pure (Y next, Just v)
+        Free (YB next)     -> pure (Y next, Nothing)
+        Free (YA act next) -> act >>= go _fs . next
+        Free (YF fs next)  -> go fs next
 
 --------------------------------------------------------------------------------
 
