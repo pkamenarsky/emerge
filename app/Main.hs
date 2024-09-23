@@ -58,7 +58,7 @@ main = do
          rectBuf <- createRectBuffer
          (blitToScreen, _) <- blit rectBuf (GL.Size 1024 1024)
 
-         for_ mWin (go mouseClick blitToScreen Nothing $ reinterpret $ mapView (Last . Just) $ scene rectBuf mouseClick mousePos)
+         for_ mWin (go False mouseClick blitToScreen Nothing $ reinterpret $ mapView (Last . Just) $ scene rectBuf mouseClick mousePos)
 
   putStrLn "bye..."
 
@@ -66,26 +66,36 @@ main = do
     tf :: Double -> Float
     tf = realToFrac
 
-    go :: Event () -> (GL.TextureObject -> IO ()) -> Maybe Out -> Run (Last Out) IO Void -> GLFW.Window -> IO ()
-    go e@(Event mouseClick) blitToScreen mOut run win = do
+    clicked :: Bool -> Bool -> Bool
+    clicked False True = True
+    clicked _ _ = False
+
+    go :: Bool -> Event () -> (GL.TextureObject -> IO ()) -> Maybe Out -> Run (Last Out) IO Void -> GLFW.Window -> IO ()
+    go mouseButtonSt e@(Event mouseClick) blitToScreen mOut run win = do
       st <- GLFW.getMouseButton win GLFW.MouseButton'1
 
-      case st of
-        GLFW.MouseButtonState'Pressed -> writeIORef mouseClick (Just ())
-        _ -> pure ()
+      mouseButtonSt' <- case st of
+        GLFW.MouseButtonState'Pressed -> pure True
+        _ -> pure False
+
+      if clicked mouseButtonSt mouseButtonSt'
+        then writeIORef mouseClick (Just ())
+        else pure ()
 
       (next, rOut) <- unblock run
 
       writeIORef mouseClick Nothing
 
-      let mOut' = asum [rOut >>= getLast, mOut]
+      -- [0]
+      (next', rOut') <- unblock next
+
+      let mOut' = asum [rOut' >>= getLast, rOut >>= getLast, mOut]
 
       for_ mOut' $ \out -> do
-         outRender out
-         blitToScreen (outTex out)
+        outRender out
+        blitToScreen (outTex out)
 
       GLFW.swapBuffers win
-      GLFW.waitEvents
 
       esc <- GLFW.getKey win GLFW.Key'Escape
 
@@ -93,4 +103,6 @@ main = do
 
       if close || esc == GLFW.KeyState'Pressed
         then pure ()
-        else go e blitToScreen mOut' next win
+        else do
+          GLFW.waitEvents
+          go mouseButtonSt' e blitToScreen mOut' next' win
