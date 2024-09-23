@@ -28,16 +28,15 @@ main = do
     (GLFW.createWindow 640 480 "SYN" Nothing Nothing)
     (traverse_ GLFW.destroyWindow)
     $ \mWin -> do
-         rectBuf <- createRectBuffer
-
          let
-             -- mouseSignal = Signal $ maybe (pure (0, 0)) GLFW.getCursorPos mWin
-             mouseSignal = Signal $ pure (0, 0)
+             mouseSignal = Signal $ maybe (pure (0, 0)) GLFW.getCursorPos mWin
              fp = flip fmap mouseSignal $ \(mx, my) -> FillParams (GL.Color3 (tf $ mx / 640.0) (tf $ my / 480.0) 1.0) 
 
          GLFW.makeContextCurrent mWin
+         rectBuf <- createRectBuffer
+         (blitToScreen, _) <- blit rectBuf (GL.Size 640 480)
 
-         for_ mWin (go $ reinterpret $ mapView (Last . Just) $ fillSyn rectBuf defaultOpOptions fp)
+         for_ mWin (go blitToScreen Nothing $ reinterpret $ mapView (Last . Just) $ fillSyn rectBuf defaultOpOptions fp)
 
   putStrLn "bye..."
 
@@ -45,11 +44,15 @@ main = do
     tf :: Double -> Float
     tf = realToFrac
 
-    go :: Run (Last Out) IO Void -> GLFW.Window -> IO ()
-    go run win = do
-      (next, mOut) <- unblock run
+    go :: (GL.TextureObject -> IO ()) -> Maybe Out -> Run (Last Out) IO Void -> GLFW.Window -> IO ()
+    go blitToScreen mOut run win = do
+      (next, rOut) <- unblock run
 
-      for_ (mOut >>= getLast) outRender
+      let mOut' = asum [rOut >>= getLast, mOut]
+
+      for_ mOut' $ \out -> do
+         outRender out
+         blitToScreen (outTex out)
 
       GLFW.swapBuffers win
       GLFW.waitEvents
@@ -60,4 +63,4 @@ main = do
 
       if close || esc == GLFW.KeyState'Pressed
         then pure ()
-        else go next win
+        else go blitToScreen mOut' next win

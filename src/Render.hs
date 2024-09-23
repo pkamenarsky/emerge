@@ -79,6 +79,7 @@ createRectBuffer = RectBuffer <$> do
 createDrawRect :: RectBuffer -> ShaderAttribs -> IO (IO (), IO ())
 createDrawRect (RectBuffer buf) sattrs = do
   vao <- genObjectName
+
   GL.bindVertexArrayObject $= Just vao
 
   GL.bindBuffer GL.ArrayBuffer $= Just buf
@@ -201,13 +202,13 @@ instance ShaderParam p => ShaderParam (Op2 p) where
 
 --------------------------------------------------------------------------------
 
-blit :: RectBuffer -> GL.TextureObject -> GL.Size -> IO (IO (), IO ())
-blit rectBuf tex viewport = do
+blit :: RectBuffer -> GL.Size -> IO (GL.TextureObject -> IO (), IO ())
+blit rectBuf viewport = do
   (attribs, bindShader, destroyShader) <- createShader vertT fragT True
   (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
 
   pure
-    ( do
+    ( \tex -> do
         GL.viewport $= (GL.Position 0 0, viewport)
         GL.clearColor $= GL.Color4 0 0 0 0
 
@@ -347,7 +348,7 @@ testrender = do
 
   (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
 
-  (blitToScreen, destroyBlit) <- blit rectBuf tex (GL.Size 640 480)
+  (blitToScreen, destroyBlit) <- blit rectBuf (GL.Size 640 480)
 
   ref <- newIORef 0
 
@@ -362,7 +363,7 @@ testrender = do
         bindShader $ TestOpts (GL.Color3 1 1 1) t
         drawRect
 
-        blitToScreen
+        blitToScreen tex
     , do
         destroyFBO
         destroyShader
