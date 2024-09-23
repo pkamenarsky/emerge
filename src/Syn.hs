@@ -7,15 +7,16 @@
 
 module Syn where
 
+import Control.Arrow
+import Control.Category hiding (id, (.))
 import Control.Applicative
-import Control.Concurrent hiding (yield)
 
 import Control.Monad.IO.Class
 import Control.Monad.Free
 import Control.Monad.Trans.Class
 
-import Data.IORef
-import Data.Foldable (for_)
+import Data.Machine.MealyT
+import Data.Machine.Process
 import Data.Void
 
 --------------------------------------------------------------------------------
@@ -75,7 +76,7 @@ data RunF v m next
 
 deriving instance Functor (RunF v m)
 
-newtype Run v m a = Run { run :: Free (RunF v m) a }
+newtype Run v m a = Run { unRun :: Free (RunF v m) a }
   deriving (Functor, Applicative, Monad)
 
 yv :: v -> Run v m ()
@@ -100,7 +101,7 @@ reinterpret (Syn (Free (Lift act next))) = ya act >>= reinterpret . Syn . next
 
 reinterpret (Syn (Free (Finalize fin syn next))) = do
   yf [fin]
-  go (run $ reinterpret syn)
+  go (unRun $ reinterpret syn)
   where
     go y = do
       case y of
@@ -113,7 +114,7 @@ reinterpret (Syn (Free (Finalize fin syn next))) = do
         Free (YB next')    -> yb >> go next'
         Free (YF fs next') -> yf (fin:fs) >> go next'
 
-reinterpret (Syn (Free (Or a b next))) = go [] [] (run $ reinterpret a) (run $ reinterpret b) mempty mempty
+reinterpret (Syn (Free (Or a b next))) = go [] [] (unRun $ reinterpret a) (unRun $ reinterpret b) mempty mempty
   where
     go aFins bFins aY bY aPrV bPrV = case (aY, bY) of
       -- finalizers
@@ -144,7 +145,7 @@ reinterpret (Syn (Free (Or a b next))) = go [] [] (run $ reinterpret a) (run $ r
       -- both blocked
       (Free (YB aNext), Free (YB bNext)) -> yb >> go aFins bFins aNext bNext aPrV bPrV
 
-reinterpret (Syn (Free (And a b next))) = go [] [] (run $ reinterpret a) (run $ reinterpret b) mempty mempty
+reinterpret (Syn (Free (And a b next))) = go [] [] (unRun $ reinterpret a) (unRun $ reinterpret b) mempty mempty
   where
     go aFins bFins aY bY aPrV bPrV = case (aY, bY) of
       -- finalizers
@@ -176,7 +177,7 @@ reinterpret (Syn (Free (And a b next))) = go [] [] (run $ reinterpret a) (run $ 
       (x@(Pure _), Free (YB bNext)) -> yb >> go aFins bFins x bNext aPrV bPrV
 
 unblock :: Monad m => Run v m Void -> m (Run v m Void, Maybe v)
-unblock = go [] . run
+unblock = go [] . unRun
   where
     go _fs y = case y of
         Pure _             -> undefined -- unreachable
@@ -194,18 +195,22 @@ deriving instance Functor (AF m)
 newtype A m a = A { unA :: Free (AF m) a }
   deriving (Functor, Applicative, Monad)
 
-data SynA m a b = SynA { unSynA :: a -> A m (b, SynA m a b) }
+newtype SynA m a b = SynA { unSynA :: MealyT (A m) a b }
+  deriving (Functor, Applicative, Semigroup, Monoid, Category, Arrow)
+
+synAautoT :: SynA m a b -> ProcessT (A m) a b
+synAautoT (SynA mealy) = autoT mealy
 
 toArr :: Applicative m => Run v m Void -> SynA m () v
-toArr (Run (Pure _)) = undefined -- unreachable
-toArr (Run (Free (YV v next))) = SynA $ \() -> pure (v, toArr $ Run next)
-toArr (Run (Free (YA act next))) = SynA $ \() -> A $ Free $ AA act $ fmap (unA . ($ ()) . unSynA . toArr . Run) next
-toArr (Run (Free (YB next))) = SynA $ \() -> A $ Free $ AB $ unA $ unSynA (toArr $ Run next) ()
-toArr (Run (Free (YF fins next))) = SynA $ \() -> A $ Free $ AF fins $ unA $ unSynA (toArr $ Run next) ()
+toArr (Run (Pure _))              = undefined -- unreachable
+toArr (Run (Free (YV v next)))    = SynA $ MealyT $ \() -> pure (v, unSynA $ toArr $ Run next)
+toArr (Run (Free (YA act next)))  = SynA $ MealyT $ \() -> A $ Free $ AA act $ fmap (unA . ($ ()) . runMealyT . unSynA . toArr . Run) next
+toArr (Run (Free (YB next)))      = SynA $ MealyT $ \() -> A $ Free $ AB $ unA $ runMealyT (unSynA $ toArr $ Run next) ()
+toArr (Run (Free (YF fins next))) = SynA $ MealyT $ \() -> A $ Free $ AF fins $ unA $ runMealyT (unSynA $ toArr $ Run next) ()
 
 fromArr :: Monad m => SynA m () v -> Syn v m a
-fromArr synA = case unA $ unSynA synA () of
-  Pure (v, next) -> Syn $ Free $ View v $ unSyn $ fromArr next
-  Free (AB next) -> Syn $ Free $ Blocked $ unSyn $ fromArr $ SynA $ \() -> A next
-  Free (AF fin next) -> Syn $ Free $ Finalize (sequence_ fin) (fromArr $ SynA $ \() -> A next) (\_ -> unSyn $ fromArr $ SynA $ \() -> A next)
-  Free (AA act next) -> Syn $ Free $ Lift act $ fmap (unSyn . fromArr . SynA . const . A) next
+fromArr synA = case unA $ runMealyT (unSynA synA) () of
+  Pure (v, next)     -> Syn $ Free $ View v $ unSyn $ fromArr $ SynA next
+  Free (AB next)     -> Syn $ Free $ Blocked $ unSyn $ fromArr $ SynA $ MealyT $ \() -> A next
+  Free (AF fin next) -> Syn $ Free $ Finalize (sequence_ fin) (fromArr $ SynA $ MealyT $ \() -> A next) (\_ -> unSyn $ fromArr $ SynA $ MealyT $ \() -> A next)
+  Free (AA act next) -> Syn $ Free $ Lift act $ fmap (unSyn . fromArr . SynA . MealyT . const . A) next

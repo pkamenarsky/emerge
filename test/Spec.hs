@@ -58,7 +58,7 @@ s1 view finalize on e = do
 test :: IO ()
 test = do
   e <- newEvent :: IO (Event ())
-  Just fire <- animate (s1 view finalize on e) putStrLn
+  Just fire <- animate (fromArr $ toArr $ reinterpret $ s1 view finalize on e) putStrLn
 
   fire e ()
   fire e ()
@@ -86,7 +86,7 @@ main :: IO ()
 main = do
   ref <- newIORef ""
   e <- newEvent :: IO (Event ())
-  Just fire <- animate (s1 e) (writeIORef ref)
+  Just fire <- animate (fromArr $ toArr $ reinterpret $ s1 e) (writeIORef ref)
 
   cmp ref "AAC"
   fire e ()
