@@ -265,7 +265,7 @@ defaultOpOptions = OpOptions
 -- Ops (fill) ------------------------------------------------------------------
 
 data FillParams = FillParams
-  { foColor :: GL.Color3 Float
+  { foColor :: GL.Color4 Float
   } deriving Generic
 
 instance ShaderParam FillParams where
@@ -286,41 +286,102 @@ fill rectBuf opts = do
   pure $ Op
     { opTex = tex
     , opRender = \params -> do
-        GL.viewport $= (GL.Position 0 0, GL.Size 640 480)
-        GL.clearColor $= GL.Color4 0 0 0 0
-
         bindFBO
         bindShader params
         drawRect
     , opDestroy = do
-       destroyFBO
-       destroyShader
-       destroyDrawRect
+        destroyFBO
+        destroyShader
+        destroyDrawRect
     }
   where
-    vertT = mconcat
-      [ "#version 460\n"
-      , "in vec3 a_pos;\n"
-      , "void main()\n"
-      , "{\n"
-      , "    gl_Position = vec4(a_pos, 1.0);\n"
-      , "}\n"
+    vertT = T.unlines
+      [ "#version 460"
+      , "in vec3 a_pos;"
+      , "void main() {"
+      , "    gl_Position = vec4(a_pos, 1.0);"
+      , "}"
       ]
 
     fragT = T.unlines
       [ "#version 460"
       , "#include \"assets/lygia/generative/cnoise.glsl\""
       , "out vec4 fragment;"
-      , "uniform vec3 foColor;\n"
-      , "void main()"
-      , "{"
-      , "  fragment = vec4(foColor, 1.);"
+      , "uniform vec4 foColor;\n"
+      , "void main() {"
+      , "  fragment = foColor;"
       , "}"
       ]
 
 fillSyn :: MonadIO m => RectBuffer -> OpOptions -> Signal FillParams -> Syn Out m a
 fillSyn rectBuf opts params = do
   Op tex render destroy <- unsafeNonBlockingIO $ fill rectBuf opts
+
+  finalize (liftIO destroy) $ view $ Out
+    { outTex = tex
+    , outRender = signalValue params >>= render
+    }
+
+-- Ops (circle) ----------------------------------------------------------------
+
+data CircleParams = CircleParams
+  { cpColor :: GL.Color4 Float
+  , cpCenter :: GL.Vertex2 Float
+  , cpRadius :: Float
+  , cpSoftness :: Float
+  } deriving Generic
+
+instance ShaderParam CircleParams where
+
+circle :: RectBuffer -> OpOptions -> IO (Op CircleParams)
+circle rectBuf opts = do
+  (tex, bindFBO, destroyFBO) <- createFramebuffer (opWidth opts) (opHeight opts) (opFormat opts) (opClamp opts)
+  (attribs, bindShader, destroyShader) <- createShader vertT fragT True
+
+  (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
+
+  pure $ Op
+    { opTex = tex
+    , opRender = \params -> do
+        bindFBO
+        bindShader params
+        drawRect
+    , opDestroy = do
+        destroyFBO
+        destroyShader
+        destroyDrawRect
+    }
+  where
+    vertT = T.unlines
+      [ "#version 460"
+      , "in vec3 a_pos;"
+      , "in vec2 a_uv;"
+      , "out vec2 uv;"
+      , "void main() {"
+      , "  gl_Position = vec4(a_pos, 1.0);"
+      , "  uv = a_uv;"
+      , "}"
+      ]
+
+    fragT = T.unlines
+      [ "#version 460"
+      , "#include \"assets/lygia/generative/cnoise.glsl\""
+      , "out vec4 fragment;"
+      , "in vec2 uv;"
+      , "uniform vec4 cpColor;\n"
+      , "uniform vec2 cpCenter;\n"
+      , "uniform float cpRadius;\n"
+      , "uniform float cpSoftness;\n"
+      , "void main() {"
+      , "  vec2 dist = uv - cpCenter;"
+      , "  float c = 1. - smoothstep(cpRadius - (cpRadius * cpSoftness), cpRadius + (cpRadius * cpSoftness), dot(dist, dist) * 4.);"
+      , "  fragment = cpColor * c;"
+      , "}"
+      ]
+
+circleSyn :: MonadIO m => RectBuffer -> OpOptions -> Signal CircleParams -> Syn Out m a
+circleSyn rectBuf opts params = do
+  Op tex render destroy <- unsafeNonBlockingIO $ circle rectBuf opts
 
   finalize (liftIO destroy) $ view $ Out
     { outTex = tex

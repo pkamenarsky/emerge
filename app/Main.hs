@@ -1,9 +1,11 @@
 module Main (main) where
 
 import Control.Exception
+import Control.Monad (void)
 import Control.Monad.IO.Class
 
 import Data.Foldable
+import Data.IORef
 import Data.Monoid
 import Data.Void
 
@@ -15,6 +17,26 @@ import Render
 import Syn
 import Syn.Run
 
+scene :: MonadIO m => RectBuffer -> Event () -> Signal (Double, Double) -> Syn Out m a
+scene rectBuf mouseClick mousePos = do
+  asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.05), on mouseClick ]
+  asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.1), on mouseClick ]
+  asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.15), on mouseClick ]
+
+  fillSyn rectBuf defaultOpOptions fillParams
+
+  where
+    tf = realToFrac
+
+    fillParams = flip fmap mousePos $ \(mx, my) -> FillParams
+      (GL.Color4 (tf $ mx / 1024.0) (tf $ my / 1024.0) 1 1) 
+
+    circleParams radius = flip fmap mousePos $ \(mx, my) -> CircleParams
+      (GL.Color4 (tf $ mx / 1024.0) (tf $ my / 1024.0) 1 1) 
+      (GL.Vertex2 (tf $ mx / 1024.0) (1 - tf (my / 1024.0)))
+      radius
+      0.01
+
 main :: IO ()
 main = do
   _ <- GLFW.init
@@ -25,18 +47,18 @@ main = do
   GLFW.windowHint $ GLFW.WindowHint'OpenGLProfile GLFW.OpenGLProfile'Core
 
   bracket
-    (GLFW.createWindow 640 480 "SYN" Nothing Nothing)
+    (GLFW.createWindow 1024 1024 "SYN" Nothing Nothing)
     (traverse_ GLFW.destroyWindow)
     $ \mWin -> do
-         let
-             mouseSignal = Signal $ maybe (pure (0, 0)) GLFW.getCursorPos mWin
-             fp = flip fmap mouseSignal $ \(mx, my) -> FillParams (GL.Color3 (tf $ mx / 640.0) (tf $ my / 480.0) 1.0) 
+         let mousePos = Signal $ maybe (pure (0, 0)) GLFW.getCursorPos mWin
+
+         mouseClick <- newEvent
 
          GLFW.makeContextCurrent mWin
          rectBuf <- createRectBuffer
-         (blitToScreen, _) <- blit rectBuf (GL.Size 640 480)
+         (blitToScreen, _) <- blit rectBuf (GL.Size 1024 1024)
 
-         for_ mWin (go blitToScreen Nothing $ reinterpret $ mapView (Last . Just) $ fillSyn rectBuf defaultOpOptions fp)
+         for_ mWin (go mouseClick blitToScreen Nothing $ reinterpret $ mapView (Last . Just) $ scene rectBuf mouseClick mousePos)
 
   putStrLn "bye..."
 
@@ -44,9 +66,17 @@ main = do
     tf :: Double -> Float
     tf = realToFrac
 
-    go :: (GL.TextureObject -> IO ()) -> Maybe Out -> Run (Last Out) IO Void -> GLFW.Window -> IO ()
-    go blitToScreen mOut run win = do
+    go :: Event () -> (GL.TextureObject -> IO ()) -> Maybe Out -> Run (Last Out) IO Void -> GLFW.Window -> IO ()
+    go e@(Event mouseClick) blitToScreen mOut run win = do
+      st <- GLFW.getMouseButton win GLFW.MouseButton'1
+
+      case st of
+        GLFW.MouseButtonState'Pressed -> writeIORef mouseClick (Just ())
+        _ -> pure ()
+
       (next, rOut) <- unblock run
+
+      writeIORef mouseClick Nothing
 
       let mOut' = asum [rOut >>= getLast, mOut]
 
@@ -63,4 +93,4 @@ main = do
 
       if close || esc == GLFW.KeyState'Pressed
         then pure ()
-        else go blitToScreen mOut' next win
+        else go e blitToScreen mOut' next win
