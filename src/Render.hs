@@ -259,6 +259,8 @@ defaultOpOptions = OpOptions
   , opClamp = GL.ClampToEdge
   }
 
+-- Ops (fill) ------------------------------------------------------------------
+
 data FillParams = FillParams
   { foColor :: GL.Color3 Float
   } deriving Generic

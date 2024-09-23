@@ -76,12 +76,14 @@ data SynR v m a
   | V v (m (SynR v m a))      -- view
   | B (m (SynR v m a))        -- blocked
   | F [m ()] (m (SynR v m a)) -- finalizer
-  | S                         -- stop
+--  | S                         -- stop
 
 unblock :: Monad m => Monoid v => Syn v m a -> m (SynR v m a)
 
-unblock (Syn (Pure a))       = pure $ P a
-unblock (Syn (Free Forever)) = pure S
+unblock (Syn (Pure a))           = pure $ P a
+
+-- unblock (Syn (Free Forever)) = pure S
+unblock syn@(Syn (Free Forever)) = pure $ B $ unblock syn
 
 unblock (Syn (Free (Blocked next))) = pure $ B $ unblock $ Syn next
 
@@ -103,7 +105,7 @@ unblock (Syn (Free (Finalize fin s next))) = pure $ F [fin] $ go $ unblock s
         V v next'  -> pure $ V v (go next')
         B next'    -> pure $ B (go next')
         F fs next' -> pure $ F (fin:fs) (go next')
-        S          -> pure S
+        -- S          -> pure S
 
 unblock (Syn (Free (Or a b next))) = go [] [] (unblock a) (unblock b) mempty mempty
   where
@@ -129,21 +131,21 @@ unblock (Syn (Free (Or a b next))) = go [] [] (unblock a) (unblock b) mempty mem
 
         -- left view, remaining variants
         (V aV aNext, B bNext) -> pure $ V (aV <> bPrV) (go aFins bFins aNext bNext aV bPrV)
-        (V aV aNext, S)       -> pure $ V (aV <> bPrV) (go aFins bFins aNext (pure S) aV bPrV)
+        -- (V aV aNext, S)       -> pure $ V (aV <> bPrV) (go aFins bFins aNext (pure S) aV bPrV)
 
         -- right view, remaining variants
         (B aNext, V bV bNext)  -> pure $ V (aPrV <> bV) (go aFins bFins aNext bNext aPrV bV)
-        (S, V bV bNext)        -> pure $ V (aPrV <> bV) (go aFins bFins (pure S) bNext aPrV bV)
+        -- (S, V bV bNext)        -> pure $ V (aPrV <> bV) (go aFins bFins (pure S) bNext aPrV bV)
 
         -- both blocked
         (B aNext, B bNext) -> pure $ B $ go aFins bFins aNext bNext aPrV bPrV
 
         -- both stopped
-        (S, S) -> pure S
+        -- (S, S) -> pure S
 
         -- one stopped
-        (S, B bNext) -> pure $ B $ go aFins bFins (pure S) bNext aPrV bPrV
-        (B aNext, S) -> pure $ B $ go aFins bFins aNext (pure S) aPrV bPrV
+        -- (S, B bNext) -> pure $ B $ go aFins bFins (pure S) bNext aPrV bPrV
+        -- (B aNext, S) -> pure $ B $ go aFins bFins aNext (pure S) aPrV bPrV
 
 unblock (Syn (Free (And a b next))) = go [] [] (unblock a) (unblock b) mempty mempty
   where
@@ -178,8 +180,8 @@ unblock (Syn (Free (And a b next))) = go [] [] (unblock a) (unblock b) mempty me
         (p@(P _), B bNext) -> pure $ B $ go aFins bFins (pure p) bNext aPrV bPrV
 
         -- stopped
-        (S, _) -> pure S
-        (_, S) -> pure S
+        -- (S, _) -> pure S
+        -- (_, S) -> pure S
 
 --------------------------------------------------------------------------------
 
@@ -193,7 +195,7 @@ unblockAll = go []
         V v next   -> pure $ Right (next, Just v)
         B next     -> pure $ Right (next, Nothing)
         F fs' next -> go fs' next
-        S          -> pure $ Left fs
+        -- S          -> pure $ Left fs
         P _        -> pure $ Left fs
 
 --------------------------------------------------------------------------------
@@ -202,7 +204,6 @@ data YF v m next
   = YV v next
   | YB next
   | YF [m ()] next
-  | YS
 
 deriving instance Functor (YF v m)
 
@@ -214,10 +215,7 @@ reinterpret = undefined
 
 --------------------------------------------------------------------------------
 
-data AF m next
-  = AB next
-  | AF [m ()] next
-  | AS
+data AF m next = AB next | AF [m ()] next
 
 deriving instance Functor (AF m)
 
@@ -231,4 +229,9 @@ toArr (Y (Pure _)) = undefined -- unreachable
 toArr (Y (Free (YV v next))) = SynA $ \() -> pure (v, toArr $ Y next)
 toArr (Y (Free (YB next))) = SynA $ \() -> A $ Free $ AB $ unA $ unSynA (toArr $ Y next) ()
 toArr (Y (Free (YF fins next))) = SynA $ \() -> A $ Free $ AF fins $ unA $ unSynA (toArr $ Y next) ()
-toArr (Y (Free YS)) = SynA $ \() -> A $ Free $ AS
+
+fromArr :: Monad m => SynA m () v -> Syn v m a
+fromArr synA = case unA $ unSynA synA () of
+  Pure (v, next) -> Syn $ Free $ View v $ unSyn $ fromArr next
+  Free (AB next) -> Syn $ Free $ Blocked $ unSyn $ fromArr $ SynA $ \() -> A next
+  Free (AF fin next) -> Syn $ Free $ Finalize (sequence_ fin) (fromArr $ SynA $ \() -> A next) (\_ -> unSyn $ fromArr $ SynA $ \() -> A next)
