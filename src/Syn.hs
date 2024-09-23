@@ -185,7 +185,7 @@ unblock (Syn (Free (And a b next))) = go [] [] (unblock a) (unblock b) mempty me
 
 --------------------------------------------------------------------------------
 
-unblockAll :: Monad m => m (SynR v m ()) -> m (Either [m ()] (m (SynR v m ()), Maybe v))
+unblockAll :: Monad m => m (SynR v m Void) -> m (Either [m ()] (m (SynR v m Void), Maybe v))
 unblockAll = go []
   where
     go fs s = do

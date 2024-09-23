@@ -11,6 +11,7 @@ import Control.Monad.IO.Class
 
 import Data.IORef
 import Data.Foldable (for_)
+import Data.Void
 
 import Syn
 
@@ -31,7 +32,7 @@ on e@(Event ref) = unsafeNonBlockingIO (readIORef ref) >>= \case
 
 --------------------------------------------------------------------------------
 
-run :: Monoid v => Syn v IO () -> (v -> IO ()) -> IO (Maybe (Event a -> a -> IO ()))
+run :: Monoid v => Syn v IO Void -> (v -> IO ()) -> IO (Maybe (Event a -> a -> IO ()))
 run syn showView = do
   r <- unblockAll $ unblock syn
 

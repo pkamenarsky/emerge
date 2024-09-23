@@ -12,7 +12,7 @@ import Data.Foldable (asum)
 import qualified Data.List.NonEmpty as NE
 import Data.Semigroup
 
-s1 :: Monad f => Alternative f => Semigroup (f String) => (forall a. String -> f a) -> (forall a. IO () -> f a -> f a) -> (t -> f ()) -> t -> f ()
+s1 :: Monad f => Alternative f => Semigroup (f String) => (forall a. String -> f a) -> (forall a. IO () -> f a -> f a) -> (t -> f ()) -> t -> f a
 s1 view finalize on e = do
   pure ()
   on e
@@ -53,6 +53,7 @@ s1 view finalize on e = do
   pure ()
   pure ()
   asum [ view "C", on e ]
+  s1 view finalize on e
 
 test :: IO ()
 test = do
@@ -63,6 +64,9 @@ test = do
   fire e ()
   fire e ()
   fire e ()
+  fire e ()
+  fire e ()
+
   fire e ()
 
 test2 :: IO ()
@@ -91,6 +95,8 @@ main = do
   cmp ref "BB"
   fire e ()
   cmp ref "C"
+  fire e ()
+  cmp ref "AAC"
 
   where
     cmp ref should = do
@@ -124,3 +130,4 @@ main = do
       pure ()
       pure ()
       asum [ view "C", on e ]
+      s1 e
