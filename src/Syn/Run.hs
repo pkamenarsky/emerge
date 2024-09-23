@@ -4,56 +4,33 @@
 
 module Syn.Run where
 
-import Control.Applicative
 import Control.Concurrent hiding (yield)
 
 import Control.Monad.Free
 import Control.Monad.IO.Class
-import Control.Monad.Trans.Class
 
 import Data.IORef
 import Data.Foldable (for_)
 
-import qualified Syn as Syn
+import Syn
 
 --------------------------------------------------------------------------------
 
-data Event a = Event { eventRef :: IORef (Maybe a) }
+data Event a = Event (IORef (Maybe a))
 
 newEvent :: IO (Event a)
 newEvent = Event <$> newIORef Nothing
 
---------------------------------------------------------------------------------
-
-newtype Syn v m a = Syn { unSyn :: Syn.Syn () v m a }
-  deriving (Functor, Applicative, Monad, Alternative, Semigroup, MonadTrans)
-
-mapView :: (u -> v) -> Syn u m a -> Syn v m a
-mapView f (Syn syn) = Syn $ Syn.mapView f syn
-
-forever :: Syn v m a
-forever = Syn $ Syn.forever
-
-view :: v -> Syn v m a
-view = Syn . Syn.view
-
-finalize :: m () -> Syn v m a -> Syn v m a
-finalize fin (Syn syn) = Syn $ Syn.finalize fin syn
-
-on :: MonadIO m => Event a -> Syn.Syn () v m a
-on e@(Event ref) = Syn.unsafeNonBlockingIO (readIORef ref) >>= \case
-  Nothing -> Syn.Syn $ Free $ Syn.Blocked $ Syn.unSyn $ on e
+on :: MonadIO m => Event a -> Syn v m a
+on e@(Event ref) = unsafeNonBlockingIO (readIORef ref) >>= \case
+  Nothing -> Syn $ Free $ Blocked $ unSyn $ on e
   Just a -> pure a
-
--- | Fireing events from here will cause a dedlock.
-unsafeNonBlockingIO :: MonadIO m => IO a -> Syn v m a
-unsafeNonBlockingIO = Syn . Syn.unsafeNonBlockingIO
 
 --------------------------------------------------------------------------------
 
 run :: Monoid v => Syn v IO () -> (v -> IO ()) -> IO (Maybe (Event a -> a -> IO ()))
-run (Syn syn) showView = do
-  r <- Syn.unblockAll $ Syn.unblock () syn
+run syn showView = do
+  r <- unblockAll $ unblock syn
 
   case r of
     Left fs -> do

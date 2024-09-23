@@ -20,31 +20,31 @@ import Data.Void
 
 --------------------------------------------------------------------------------
 
-data SynF e v m next
+data SynF v m next
   = Forever
   | View v next
   | Blocked next
   | forall a. Lift (m a) (a -> next)
-  | forall a. Finalize (m ()) (Syn e v m a) (a -> next)
-  | forall a. Or (Syn e v m a) (Syn e v m a) (a -> next)
-  | forall a. Monoid a => And (Syn e v m a) (Syn e v m a) (a -> next)
+  | forall a. Finalize (m ()) (Syn v m a) (a -> next)
+  | forall a. Or (Syn v m a) (Syn v m a) (a -> next)
+  | forall a. Monoid a => And (Syn v m a) (Syn v m a) (a -> next)
 
-deriving instance Functor (SynF e v m)
+deriving instance Functor (SynF v m)
 
-newtype Syn e v m a = Syn { unSyn :: Free (SynF e v m) a }
+newtype Syn v m a = Syn { unSyn :: Free (SynF v m) a }
   deriving (Functor, Applicative, Monad)
 
-instance Alternative (Syn e v m) where
+instance Alternative (Syn v m) where
   empty = forever
   a <|> b = Syn $ liftF $ Or a b id
 
-instance Monoid a => Semigroup (Syn e v m a) where
+instance Monoid a => Semigroup (Syn v m a) where
   a <> b = Syn $ liftF $ And a b id
 
-instance MonadTrans (Syn e v) where
+instance MonadTrans (Syn v) where
   lift m = Syn $ liftF $ Lift m id
 
-mapView :: (u -> v) -> Syn e u m a -> Syn e v m a
+mapView :: (u -> v) -> Syn u m a -> Syn v m a
 mapView _ (Syn (Pure a)) = Syn $ Pure a
 mapView _ (Syn (Free Forever)) = Syn $ Free Forever
 mapView f (Syn (Free (View u next))) = Syn $ Free $ View (f u) (unSyn $ mapView f $ Syn next)
@@ -54,22 +54,19 @@ mapView f (Syn (Free (Blocked next))) = Syn $ Free $ Blocked (unSyn $ mapView f 
 mapView f (Syn (Free (Or a b next))) = Syn $ Free $ Or (mapView f a) (mapView f b) (fmap (unSyn . mapView f . Syn) next)
 mapView f (Syn (Free (And a b next))) = Syn $ Free $ And (mapView f a) (mapView f b) (fmap (unSyn . mapView f . Syn) next)
 
-forever :: Syn e v m a
+forever :: Syn v m a
 forever = Syn $ liftF Forever
 
-view :: v -> Syn e v m a
+view :: v -> Syn v m a
 view v = Syn $ do
   liftF $ View v ()
   liftF Forever
 
-finalize :: m () -> Syn e v m a -> Syn e v m a
+finalize :: m () -> Syn v m a -> Syn v m a
 finalize fin s = Syn $ liftF $ Finalize fin s id
 
--- on :: e a -> Syn e v m a
--- on e = Syn $ liftF $ On e id
-
 -- | Fireing events from here will cause a dedlock.
-unsafeNonBlockingIO :: MonadIO m => IO a -> Syn e v m a
+unsafeNonBlockingIO :: MonadIO m => IO a -> Syn v m a
 unsafeNonBlockingIO io = lift $ liftIO io
 
 --------------------------------------------------------------------------------
@@ -81,23 +78,20 @@ data SynR v m a
   | F [m ()] (m (SynR v m a)) -- finalizer
   | S                         -- stop
 
-unblock :: Monad m => Monoid v => () -> Syn e v m a -> m (SynR v m a)
+unblock :: Monad m => Monoid v => Syn v m a -> m (SynR v m a)
 
-unblock _ (Syn (Pure a))       = pure $ P a
-unblock _ (Syn (Free Forever)) = pure S
+unblock (Syn (Pure a))       = pure $ P a
+unblock (Syn (Free Forever)) = pure S
 
-unblock re s@(Syn (Free (Blocked next))) = pure $ B $ unblock re $ Syn next
--- unblock re s@(Syn (Free (On e next))) = re e >>= \case
---   Just r  -> pure $ B $ unblock re $ Syn $ next r
---   Nothing -> pure $ B $ unblock re s
+unblock (Syn (Free (Blocked next))) = pure $ B $ unblock $ Syn next
 
-unblock re (Syn (Free (View v next))) = pure $ V v $ unblock re $ Syn next
+unblock (Syn (Free (View v next))) = pure $ V v $ unblock $ Syn next
 
-unblock re (Syn (Free (Lift m next))) = do
+unblock (Syn (Free (Lift m next))) = do
   r <- m
-  unblock re $ Syn $ next r
+  unblock $ Syn $ next r
 
-unblock re (Syn (Free (Finalize fin s next))) = pure $ F [fin] $ go $ unblock re s
+unblock (Syn (Free (Finalize fin s next))) = pure $ F [fin] $ go $ unblock s
   where
     go syn = do
       r <- syn
@@ -105,13 +99,13 @@ unblock re (Syn (Free (Finalize fin s next))) = pure $ F [fin] $ go $ unblock re
       case r of
         P a -> do
           fin
-          pure $ F [] $ unblock re $ Syn $ next a
+          pure $ F [] $ unblock $ Syn $ next a
         V v next'  -> pure $ V v (go next')
         B next'    -> pure $ B (go next')
         F fs next' -> pure $ F (fin:fs) (go next')
         S          -> pure S
 
-unblock re (Syn (Free (Or a b next))) = go [] [] (unblock re a) (unblock re b) mempty mempty
+unblock (Syn (Free (Or a b next))) = go [] [] (unblock a) (unblock b) mempty mempty
   where
     go aFins bFins aSyn bSyn aPrV bPrV = do
       a' <- aSyn
@@ -125,10 +119,10 @@ unblock re (Syn (Free (Or a b next))) = go [] [] (unblock re a) (unblock re b) m
         -- one finished
         (P r, _) -> do
           sequence_ bFins
-          pure $ F [] $ unblock re $ Syn $ next r
+          pure $ F [] $ unblock $ Syn $ next r
         (_, P r) -> do
           sequence_ aFins
-          pure $ F [] $ unblock re $ Syn $ next r
+          pure $ F [] $ unblock $ Syn $ next r
 
         -- both views
         (V aV aNext, V bV bNext) -> pure $ V (aV <> bV) (go aFins bFins aNext bNext aV bV)
@@ -151,7 +145,7 @@ unblock re (Syn (Free (Or a b next))) = go [] [] (unblock re a) (unblock re b) m
         (S, B bNext) -> pure $ B $ go aFins bFins (pure S) bNext aPrV bPrV
         (B aNext, S) -> pure $ B $ go aFins bFins aNext (pure S) aPrV bPrV
 
-unblock re (Syn (Free (And a b next))) = go [] [] (unblock re a) (unblock re b) mempty mempty
+unblock (Syn (Free (And a b next))) = go [] [] (unblock a) (unblock b) mempty mempty
   where
     go aFins bFins aSyn bSyn aPrV bPrV = do
       a' <- aSyn
@@ -163,7 +157,7 @@ unblock re (Syn (Free (And a b next))) = go [] [] (unblock re a) (unblock re b) 
         (s, F fs next') -> pure $ F (aFins <> fs) $ go aFins fs (pure s) next' aPrV bPrV
 
         -- both finished
-        (P aR, P bR) -> unblock re $ Syn $ next (aR <> bR)
+        (P aR, P bR) -> unblock $ Syn $ next (aR <> bR)
 
         -- both views
         (V aV aNext, V bV bNext) -> pure $ V (aV <> bV) (go aFins bFins aNext bNext aV bV)
@@ -215,7 +209,7 @@ deriving instance Functor (YF v m)
 newtype Y v m a = Y { unY :: Free (YF v m) a }
   deriving (Functor, Applicative, Monad)
 
-reinterpret :: Monad m => Monoid v => Syn e v m a -> Y v m a
+reinterpret :: Monad m => Monoid v => Syn v m a -> Y v m a
 reinterpret = undefined
 
 --------------------------------------------------------------------------------

@@ -27,6 +27,7 @@ import Foreign.Storable
 
 import qualified Graphics.Rendering.OpenGL as GL
 
+import Syn
 import Syn.Run
 
 import GHC.Generics

@@ -1,5 +1,6 @@
 {-# LANGUAGE RankNTypes #-}
 
+import Syn
 import Syn.Run
 import qualified Syn.Threads as SynT
 
