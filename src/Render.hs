@@ -7,12 +7,14 @@ module Render where
 import Control.Applicative
 import Control.Concurrent.MVar
 import Control.Monad
+import Control.Monad.IO.Class
 
 import qualified Data.ByteString as B
 import Data.ByteString (ByteString)
 import Data.Foldable
 import Data.IORef
 import Data.ObjectName
+import Data.Machine.MealyT
 import Data.StateVar
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -267,7 +269,11 @@ data FillParams = FillParams
 
 instance ShaderParam FillParams where
 
-data Op params = Op (GL.TextureObject, params -> IO (), IO ())
+data Op params = Op
+  { opTex :: GL.TextureObject
+  , opRender :: params -> IO ()
+  , opDestroy :: IO ()
+  }
   
 fill :: RectBuffer -> OpOptions -> IO (Op FillParams)
 fill rectBuf opts = do
@@ -277,19 +283,19 @@ fill rectBuf opts = do
   (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
 
   pure $ Op
-    ( tex
-    , \params -> do
+    { opTex = tex
+    , opRender = \params -> do
         GL.viewport $= (GL.Position 0 0, GL.Size 640 480)
         GL.clearColor $= GL.Color4 0 0 0 0
 
         bindFBO
         bindShader params
         drawRect
-    , do
-        destroyFBO
-        destroyShader
-        destroyDrawRect
-    )
+    , opDestroy = do
+       destroyFBO
+       destroyShader
+       destroyDrawRect
+    }
   where
     vertT = mconcat
       [ "#version 460\n"
@@ -310,6 +316,16 @@ fill rectBuf opts = do
       , "  fragment = vec4(foColor, 1.);"
       , "}"
       ]
+
+fillSyn :: MonadIO m => RectBuffer -> OpOptions -> MealyT m () FillParams -> Syn Out m ()
+fillSyn rectBuf opts mParams = do
+  Op tex render destroy <- unsafeNonBlockingIO $ fill rectBuf opts
+  finalize (liftIO destroy) $ mapView (mkOut tex render) $ fromArr $ synUpgradeM mParams
+  where
+    mkOut tex render params = Out
+      { outTex = tex
+      , outRender = render params
+      }
 
 --------------------------------------------------------------------------------
 
@@ -419,7 +435,7 @@ resolveGLSL glsl = do
 --------------------------------------------------------------------------------
 
 data Out = Out
-  { outTex :: Word32
+  { outTex :: GL.TextureObject
   , outRender :: IO ()
   }
 

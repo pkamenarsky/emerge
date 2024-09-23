@@ -198,8 +198,17 @@ newtype A m a = A { unA :: Free (AF m) a }
 newtype SynA m a b = SynA { unSynA :: MealyT (A m) a b }
   deriving (Functor, Applicative, Semigroup, Monoid, Category, Arrow)
 
-synAautoT :: SynA m a b -> ProcessT (A m) a b
-synAautoT (SynA mealy) = autoT mealy
+synAutoT :: SynA m a b -> ProcessT (A m) a b
+synAutoT (SynA mealy) = autoT mealy
+
+synArrM :: (a -> m b) -> SynA m a b
+synArrM f = SynA $ MealyT $ \a -> A $ Free $ AA (f a) $ \b -> Pure (b, unSynA $ synArrM f)
+
+pre :: m a -> (a -> SynA m x y) -> SynA m x y
+pre act f = SynA $ MealyT $ \x -> A $ Free $ AA act $ \a -> unA $ runMealyT (unSynA (f a)) x
+
+synUpgradeM :: MealyT m a b -> SynA m a b
+synUpgradeM (MealyT m) = SynA $ MealyT $ \a -> A $ Free $ AA (m a) $ \b -> Pure $ fmap (unSynA . synUpgradeM) b
 
 toArr :: Applicative m => Run v m Void -> SynA m () v
 toArr (Run (Pure _))              = undefined -- unreachable
