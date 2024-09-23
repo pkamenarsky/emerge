@@ -317,15 +317,14 @@ fill rectBuf opts = do
       , "}"
       ]
 
-fillSyn :: MonadIO m => RectBuffer -> OpOptions -> MealyT m () FillParams -> Syn Out m ()
-fillSyn rectBuf opts mParams = do
+fillSyn :: MonadIO m => RectBuffer -> OpOptions -> Signal FillParams -> Syn Out m a
+fillSyn rectBuf opts params = do
   Op tex render destroy <- unsafeNonBlockingIO $ fill rectBuf opts
-  finalize (liftIO destroy) $ mapView (mkOut tex render) $ fromArr $ synUpgradeM mParams
-  where
-    mkOut tex render params = Out
-      { outTex = tex
-      , outRender = render params
-      }
+
+  finalize (liftIO destroy) $ view $ Out
+    { outTex = tex
+    , outRender = signalValue params >>= render
+    }
 
 --------------------------------------------------------------------------------
 
