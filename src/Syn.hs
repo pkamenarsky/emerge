@@ -76,18 +76,14 @@ data SynR v m a
   | V v (m (SynR v m a))      -- view
   | B (m (SynR v m a))        -- blocked
   | F [m ()] (m (SynR v m a)) -- finalizer
---  | S                         -- stop
 
 step :: Monad m => Monoid v => Syn v m a -> m (SynR v m a)
 
 step (Syn (Pure a))           = pure $ P a
-
 step syn@(Syn (Free Forever)) = pure $ B $ step syn
--- step (Syn (Free Forever))  = pure S
 
+step (Syn (Free (View v next)))  = pure $ V v $ step $ Syn next
 step (Syn (Free (Blocked next))) = pure $ B $ step $ Syn next
-
-step (Syn (Free (View v next))) = pure $ V v $ step $ Syn next
 
 step (Syn (Free (Lift m next))) = do
   r <- m
@@ -129,23 +125,12 @@ step (Syn (Free (Or a b next))) = go [] [] (step a) (step b) mempty mempty
         -- both views
         (V aV aNext, V bV bNext) -> pure $ V (aV <> bV) (go aFins bFins aNext bNext aV bV)
 
-        -- left view, remaining variants
+        -- one view
         (V aV aNext, B bNext) -> pure $ V (aV <> bPrV) (go aFins bFins aNext bNext aV bPrV)
-        -- (V aV aNext, S)       -> pure $ V (aV <> bPrV) (go aFins bFins aNext (pure S) aV bPrV)
-
-        -- right view, remaining variants
-        (B aNext, V bV bNext)  -> pure $ V (aPrV <> bV) (go aFins bFins aNext bNext aPrV bV)
-        -- (S, V bV bNext)        -> pure $ V (aPrV <> bV) (go aFins bFins (pure S) bNext aPrV bV)
+        (B aNext, V bV bNext) -> pure $ V (aPrV <> bV) (go aFins bFins aNext bNext aPrV bV)
 
         -- both blocked
         (B aNext, B bNext) -> pure $ B $ go aFins bFins aNext bNext aPrV bPrV
-
-        -- both stopped
-        -- (S, S) -> pure S
-
-        -- one stopped
-        -- (S, B bNext) -> pure $ B $ go aFins bFins (pure S) bNext aPrV bPrV
-        -- (B aNext, S) -> pure $ B $ go aFins bFins aNext (pure S) aPrV bPrV
 
 step (Syn (Free (And a b next))) = go [] [] (step a) (step b) mempty mempty
   where
@@ -179,24 +164,19 @@ step (Syn (Free (And a b next))) = go [] [] (step a) (step b) mempty mempty
         (B aNext, p@(P _)) -> pure $ B $ go aFins bFins aNext (pure p) aPrV bPrV
         (p@(P _), B bNext) -> pure $ B $ go aFins bFins (pure p) bNext aPrV bPrV
 
-        -- stopped
-        -- (S, _) -> pure S
-        -- (_, S) -> pure S
-
 --------------------------------------------------------------------------------
 
-unblockAll :: Monad m => m (SynR v m Void) -> m (m (SynR v m Void), Maybe v)
-unblockAll = go []
+unblock :: Monad m => m (SynR v m Void) -> m (m (SynR v m Void), Maybe v)
+unblock = go []
   where
-    go fs s = do
+    go _fs s = do
       r <- s
 
       case r of
+        P _        -> undefined -- unreachable
         V v next   -> pure (next, Just v)
         B next     -> pure (next, Nothing)
-        F fs' next -> go fs' next
-        -- S          -> pure $ Left fs
-        P _        -> undefined -- unreachable
+        F fs next  -> go fs next
 
 --------------------------------------------------------------------------------
 

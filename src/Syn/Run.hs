@@ -34,32 +34,23 @@ on e@(Event ref) = unsafeNonBlockingIO (readIORef ref) >>= \case
 
 run :: Monoid v => Syn v IO Void -> (v -> IO ()) -> IO (Maybe (Event a -> a -> IO ()))
 run syn showView = do
-  r <- unblockAll $ unblock syn
+  (next, v) <- unblock $ step syn
 
-  case r of
-    Left fs -> do
-      sequence_ fs
-      pure Nothing
-    Right (next, v) -> do
-      for_ v showView
+  for_ v showView
 
-      mvSyn <- newMVar next
+  mvSyn <- newMVar next
 
-      pure $ Just $ \(Event ref) a -> do
-        v' <- modifyMVar mvSyn $ \s -> do
+  pure $ Just $ \(Event ref) a -> do
+    v' <- modifyMVar mvSyn $ \s -> do
 
-          writeIORef ref (Just a)
-          s' <- Syn.unblockAll s
-          writeIORef ref Nothing
+      writeIORef ref (Just a)
+      (next', v') <- unblock s
+      writeIORef ref Nothing
 
-          case s' of
-            Left _    -> error "blocked indefinitely/finished" -- TODO
-            Right (s'', Nothing) -> do
-              -- [0]: blocked; unblock potential `Blocked (Pure _)` expressions
-              s''' <- Syn.unblockAll s''
-              case s''' of
-                Left _    -> error "blocked indefinitely/finished" -- TODO
-                Right r'  -> pure r'
-            Right r'@(_, Just _) -> pure r'
+      case v' of
+        -- [0]: blocked; unblock potential `Blocked (Pure _)` expressions
+        Nothing -> do
+          unblock next'
+        Just _ -> pure (next', v')
 
-        for_ v' showView
+    for_ v' showView
