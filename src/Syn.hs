@@ -78,22 +78,22 @@ data SynR v m a
   | F [m ()] (m (SynR v m a)) -- finalizer
 --  | S                         -- stop
 
-unblock :: Monad m => Monoid v => Syn v m a -> m (SynR v m a)
+step :: Monad m => Monoid v => Syn v m a -> m (SynR v m a)
 
-unblock (Syn (Pure a))           = pure $ P a
+step (Syn (Pure a))           = pure $ P a
 
--- unblock (Syn (Free Forever)) = pure S
-unblock syn@(Syn (Free Forever)) = pure $ B $ unblock syn
+step syn@(Syn (Free Forever)) = pure $ B $ step syn
+-- step (Syn (Free Forever))  = pure S
 
-unblock (Syn (Free (Blocked next))) = pure $ B $ unblock $ Syn next
+step (Syn (Free (Blocked next))) = pure $ B $ step $ Syn next
 
-unblock (Syn (Free (View v next))) = pure $ V v $ unblock $ Syn next
+step (Syn (Free (View v next))) = pure $ V v $ step $ Syn next
 
-unblock (Syn (Free (Lift m next))) = do
+step (Syn (Free (Lift m next))) = do
   r <- m
-  unblock $ Syn $ next r
+  step $ Syn $ next r
 
-unblock (Syn (Free (Finalize fin s next))) = pure $ F [fin] $ go $ unblock s
+step (Syn (Free (Finalize fin s next))) = pure $ F [fin] $ go $ step s
   where
     go syn = do
       r <- syn
@@ -101,13 +101,13 @@ unblock (Syn (Free (Finalize fin s next))) = pure $ F [fin] $ go $ unblock s
       case r of
         P a -> do
           fin
-          pure $ F [] $ unblock $ Syn $ next a
+          pure $ F [] $ step $ Syn $ next a
         V v next'  -> pure $ V v (go next')
         B next'    -> pure $ B (go next')
         F fs next' -> pure $ F (fin:fs) (go next')
         -- S          -> pure S
 
-unblock (Syn (Free (Or a b next))) = go [] [] (unblock a) (unblock b) mempty mempty
+step (Syn (Free (Or a b next))) = go [] [] (step a) (step b) mempty mempty
   where
     go aFins bFins aSyn bSyn aPrV bPrV = do
       a' <- aSyn
@@ -121,10 +121,10 @@ unblock (Syn (Free (Or a b next))) = go [] [] (unblock a) (unblock b) mempty mem
         -- one finished
         (P r, _) -> do
           sequence_ bFins
-          pure $ F [] $ unblock $ Syn $ next r
+          pure $ F [] $ step $ Syn $ next r
         (_, P r) -> do
           sequence_ aFins
-          pure $ F [] $ unblock $ Syn $ next r
+          pure $ F [] $ step $ Syn $ next r
 
         -- both views
         (V aV aNext, V bV bNext) -> pure $ V (aV <> bV) (go aFins bFins aNext bNext aV bV)
@@ -147,7 +147,7 @@ unblock (Syn (Free (Or a b next))) = go [] [] (unblock a) (unblock b) mempty mem
         -- (S, B bNext) -> pure $ B $ go aFins bFins (pure S) bNext aPrV bPrV
         -- (B aNext, S) -> pure $ B $ go aFins bFins aNext (pure S) aPrV bPrV
 
-unblock (Syn (Free (And a b next))) = go [] [] (unblock a) (unblock b) mempty mempty
+step (Syn (Free (And a b next))) = go [] [] (step a) (step b) mempty mempty
   where
     go aFins bFins aSyn bSyn aPrV bPrV = do
       a' <- aSyn
@@ -159,7 +159,7 @@ unblock (Syn (Free (And a b next))) = go [] [] (unblock a) (unblock b) mempty me
         (s, F fs next') -> pure $ F (aFins <> fs) $ go aFins fs (pure s) next' aPrV bPrV
 
         -- both finished
-        (P aR, P bR) -> unblock $ Syn $ next (aR <> bR)
+        (P aR, P bR) -> step $ Syn $ next (aR <> bR)
 
         -- both views
         (V aV aNext, V bV bNext) -> pure $ V (aV <> bV) (go aFins bFins aNext bNext aV bV)
@@ -185,18 +185,18 @@ unblock (Syn (Free (And a b next))) = go [] [] (unblock a) (unblock b) mempty me
 
 --------------------------------------------------------------------------------
 
-unblockAll :: Monad m => m (SynR v m Void) -> m (Either [m ()] (m (SynR v m Void), Maybe v))
+unblockAll :: Monad m => m (SynR v m Void) -> m (m (SynR v m Void), Maybe v)
 unblockAll = go []
   where
     go fs s = do
       r <- s
 
       case r of
-        V v next   -> pure $ Right (next, Just v)
-        B next     -> pure $ Right (next, Nothing)
+        V v next   -> pure (next, Just v)
+        B next     -> pure (next, Nothing)
         F fs' next -> go fs' next
         -- S          -> pure $ Left fs
-        P _        -> pure $ Left fs
+        P _        -> undefined -- unreachable
 
 --------------------------------------------------------------------------------
 
