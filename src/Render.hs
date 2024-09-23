@@ -256,8 +256,8 @@ data OpOptions = OpOptions
 
 defaultOpOptions :: OpOptions
 defaultOpOptions = OpOptions
-  { opWidth = 512
-  , opHeight = 512
+  { opWidth = 1024
+  , opHeight = 1024
   , opFormat = GL.RGBA8
   , opClamp = GL.ClampToEdge
   }
@@ -373,9 +373,10 @@ circle rectBuf opts = do
       , "uniform float cpRadius;\n"
       , "uniform float cpSoftness;\n"
       , "void main() {"
-      , "  vec2 dist = uv - cpCenter;"
-      , "  float c = 1. - smoothstep(cpRadius - (cpRadius * cpSoftness), cpRadius + (cpRadius * cpSoftness), dot(dist, dist) * 4.);"
-      , "  fragment = cpColor * c;"
+      , "  float dist = distance(uv, cpCenter);"
+      , "  float delta = fwidth(dist);"
+      , "  float alpha = smoothstep(cpRadius - delta, cpRadius, dist);"
+      , "  fragment = cpColor * (1 - alpha);"
       , "}"
       ]
 
