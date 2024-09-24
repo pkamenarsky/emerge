@@ -92,6 +92,10 @@ main = do
   fire e ()
   cmp ref "RRS"
   fire e ()
+  cmp ref "XZ"
+  fire e ()
+  cmp ref "YZ"
+  fire e ()
   cmp ref "BB"
   fire e ()
   cmp ref "C"
@@ -109,6 +113,15 @@ main = do
       pure ()
       r <- sconcat $ NE.fromList [ asum [ view "A", view "A", view "C", on e >> pure "R" ], on e >> pure "R", on e >> pure "S" ]
       _ <- asum [ view r, on e]
+      _ <- asum
+        [ do
+            _ <- asum [ pure () >> view "X", on e ]
+            pure ()
+            pure ()
+            _ <- asum [ view "Y", on e ]
+            pure ()
+        , view "Z"
+        ]
       pure ()
       pure ()
       pure ()

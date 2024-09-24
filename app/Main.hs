@@ -23,7 +23,9 @@ scene rectBuf mouseClick mousePos = do
   asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.1), on mouseClick ]
   asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.15), on mouseClick ]
 
-  fillSyn rectBuf defaultOpOptions fillParams
+  blendSyn rectBuf defaultBlendOptions (pure $ BlendParamsSyn 0.5)
+    (fillSyn rectBuf defaultOpOptions fillParams)
+    (circleSyn rectBuf defaultOpOptions (circleParams 0.15))
 
   where
     tf = realToFrac
@@ -35,7 +37,6 @@ scene rectBuf mouseClick mousePos = do
       (GL.Color4 (tf $ mx / 1024.0) (tf $ my / 1024.0) 1 1) 
       (GL.Vertex2 (tf $ mx / 1024.0) (1 - tf (my / 1024.0)))
       radius
-      0.01
 
 main :: IO ()
 main = do

@@ -10,6 +10,8 @@
 
 module Types where
 
+import Control.Monad (when)
+
 import Data.Proxy
 import Data.StateVar
 
@@ -24,6 +26,10 @@ newtype Frame = Frame Int
   deriving (Eq, Ord)
 
 --------------------------------------------------------------------------------
+
+newtype Tex1 = Tex1 GL.TextureObject
+newtype Tex2 = Tex2 GL.TextureObject
+newtype Tex3 = Tex3 GL.TextureObject
 
 data ShaderParamDeriveOpts = ShaderParamDeriveOpts
   { spFieldLabelModifier :: String -> String
@@ -55,10 +61,63 @@ instance GShaderParam a => GShaderParam (M1 D i a) where
     set <- gShaderParam opts program
     pure $ \(M1 a) -> set a
 
-instance (KnownSymbol name, GL.Uniform a) => GShaderParam (M1 S ('MetaSel ('Just name) u s t) (K1 i a)) where
+instance {-# OVERLAPPABLE #-} (KnownSymbol name, GL.Uniform a) => GShaderParam (M1 S ('MetaSel ('Just name) u s t) (K1 i a)) where
   gShaderParam opts program = do
-    loc <- GL.uniformLocation program (spFieldLabelModifier opts $ symbolVal nameP)
+    let uName = spFieldLabelModifier opts $ symbolVal nameP
+
+    loc <- GL.uniformLocation program uName
+    
+    when (loc < GL.UniformLocation 0) $ error $ "gShaderParam: uniform " <> uName <> " not found"
+
     pure $ \(M1 (K1 a)) -> GL.uniform loc $= a
+    where
+      nameP :: Proxy name
+      nameP = Proxy
+
+instance {-# OVERLAPS #-} KnownSymbol name => GShaderParam (M1 S ('MetaSel ('Just name) u s t) (K1 i Tex1)) where
+  gShaderParam opts program = do
+    let uName = spFieldLabelModifier opts $ symbolVal nameP
+
+    loc <- GL.uniformLocation program uName
+    
+    when (loc < GL.UniformLocation 0) $ error $ "gShaderParam: uniform " <> uName <> " not found"
+
+    pure $ \(M1 (K1 (Tex1 tex))) -> do
+      GL.activeTexture $= GL.TextureUnit 0
+      GL.textureBinding GL.Texture2D $= Just tex
+      GL.uniform loc $= GL.TextureUnit 0
+    where
+      nameP :: Proxy name
+      nameP = Proxy
+
+instance {-# OVERLAPS #-} KnownSymbol name => GShaderParam (M1 S ('MetaSel ('Just name) u s t) (K1 i Tex2)) where
+  gShaderParam opts program = do
+    let uName = spFieldLabelModifier opts $ symbolVal nameP
+
+    loc <- GL.uniformLocation program uName
+    
+    when (loc < GL.UniformLocation 0) $ error $ "gShaderParam: uniform " <> uName <> " not found"
+
+    pure $ \(M1 (K1 (Tex2 tex))) -> do
+      GL.activeTexture $= GL.TextureUnit 1
+      GL.textureBinding GL.Texture2D $= Just tex
+      GL.uniform loc $= GL.TextureUnit 1
+    where
+      nameP :: Proxy name
+      nameP = Proxy
+
+instance {-# OVERLAPPING #-} KnownSymbol name => GShaderParam (M1 S ('MetaSel ('Just name) u s t) (K1 i Tex3)) where
+  gShaderParam opts program = do
+    let uName = spFieldLabelModifier opts $ symbolVal nameP
+
+    loc <- GL.uniformLocation program uName
+    
+    when (loc < GL.UniformLocation 0) $ error $ "gShaderParam: uniform " <> uName <> " not found"
+
+    pure $ \(M1 (K1 (Tex3 tex))) -> do
+      GL.activeTexture $= GL.TextureUnit 2
+      GL.textureBinding GL.Texture2D $= Just tex
+      GL.uniform loc $= GL.TextureUnit 2
     where
       nameP :: Proxy name
       nameP = Proxy

@@ -51,6 +51,29 @@ fi = fromIntegral
 fsz :: Int
 fsz = sizeOf (undefined :: GL.GLfloat)
 
+-- Ops -------------------------------------------------------------------------
+
+data OpOptions = OpOptions
+  { opWidth :: Int32
+  , opHeight :: Int32
+  , opFormat :: GL.PixelInternalFormat
+  , opClamp :: GL.Clamping
+  }
+
+defaultOpOptions :: OpOptions
+defaultOpOptions = OpOptions
+  { opWidth = 1024
+  , opHeight = 1024
+  , opFormat = GL.RGBA8
+  , opClamp = GL.ClampToEdge
+  }
+
+data Op params = Op
+  { opTex :: GL.TextureObject
+  , opRender :: params -> IO ()
+  , opDestroy :: IO ()
+  }
+
 --------------------------------------------------------------------------------
 
 data RectBuffer = RectBuffer GL.BufferObject
@@ -98,16 +121,16 @@ createDrawRect (RectBuffer buf) sattrs = do
       GL.bindVertexArrayObject $= Just vao
       GL.drawArrays GL.Triangles 0 6
 
-createFramebuffer :: Int32 -> Int32 -> GL.PixelInternalFormat -> GL.Clamping -> IO (GL.TextureObject, IO (), IO ())
-createFramebuffer width height ifmt clamp = do
+createFramebuffer :: OpOptions -> IO (GL.TextureObject, IO (), IO ())
+createFramebuffer opts = do
   fbo <- genObjectName
   tex <- genObjectName
 
   GL.textureBinding GL.Texture2D $= Just tex
 
-  GL.texImage2D GL.Texture2D GL.NoProxy 0 ifmt (GL.TextureSize2D width height) 0 (GL.PixelData GL.RGBA GL.UnsignedByte nullPtr)
+  GL.texImage2D GL.Texture2D GL.NoProxy 0 (opFormat opts) (GL.TextureSize2D (opWidth opts) (opHeight opts)) 0 (GL.PixelData GL.RGBA GL.UnsignedByte nullPtr)
   GL.textureFilter GL.Texture2D $= ((GL.Linear', Nothing), GL.Linear')
-  GL.textureWrapMode GL.Texture2D GL.S $= (GL.Repeated, clamp)
+  GL.textureWrapMode GL.Texture2D GL.S $= (GL.Repeated, opClamp opts)
 
   GL.bindFramebuffer GL.Framebuffer $= fbo
   GL.framebufferTexture2D GL.Framebuffer (GL.ColorAttachment 0) GL.Texture2D tex 0
@@ -117,7 +140,7 @@ createFramebuffer width height ifmt clamp = do
   where
     bind fbo = do
       GL.bindFramebuffer GL.Framebuffer $= fbo
-      GL.viewport $= (GL.Position 0 0, GL.Size width height)
+      GL.viewport $= (GL.Position 0 0, GL.Size (opWidth opts) (opHeight opts))
 
     destroy fbo tex = do
       deleteObjectName fbo
@@ -167,40 +190,13 @@ createShader vertT fragT uv = do
         GL.deleteObjectName fragShader
         GL.deleteObjectName program
 
-data Op1 p = Op1 GL.TextureObject p
-
-instance ShaderParam p => ShaderParam (Op1 p) where
-  shaderParam program = do
-    loc <- GL.uniformLocation program "u_tex"
-    set <- shaderParam program
-
-    pure $ \(Op1 tex p) -> do
-      GL.activeTexture $= GL.TextureUnit 0
-      GL.textureBinding GL.Texture2D $= Just tex
-      GL.uniform loc $= GL.TextureUnit 0
-
-      set p
-
-data Op2 p = Op2 GL.TextureObject GL.TextureObject p
-
-instance ShaderParam p => ShaderParam (Op2 p) where
-  shaderParam program = do
-    loc1 <- GL.uniformLocation program "u_tex1"
-    loc2 <- GL.uniformLocation program "u_tex2"
-    set <- shaderParam program
-
-    pure $ \(Op2 tex1 tex2 p) -> do
-      GL.activeTexture $= GL.TextureUnit 0
-      GL.textureBinding GL.Texture2D $= Just tex1
-      GL.uniform loc1 $= GL.TextureUnit 0
-
-      GL.activeTexture $= GL.TextureUnit 1
-      GL.textureBinding GL.Texture2D $= Just tex2
-      GL.uniform loc2 $= GL.TextureUnit 1
-
-      set p
-
 --------------------------------------------------------------------------------
+
+data BlitParams = BlitParams
+  { blitSource :: Tex1
+  } deriving Generic
+
+instance ShaderParam BlitParams where
 
 blit :: RectBuffer -> GL.Size -> IO (GL.TextureObject -> IO (), IO ())
 blit rectBuf viewport = do
@@ -214,7 +210,7 @@ blit rectBuf viewport = do
 
         GL.bindFramebuffer GL.Framebuffer $= GL.defaultFramebufferObject
 
-        bindShader $ Op1 tex ()
+        bindShader $ BlitParams (Tex1 tex)
         drawRect
 
     , do
@@ -236,31 +232,14 @@ blit rectBuf viewport = do
 
     fragT = T.unlines
       [ "#version 460"
-      , "uniform sampler2D u_op1Tex;\n"
+      , "uniform sampler2D blitSource;\n"
       , "in vec2 uv;"
       , "out vec4 fragment;"
       , "void main()"
       , "{"
-      , "  fragment = texture2D(u_op1Tex, uv);"
+      , "  fragment = texture2D(blitSource, uv);"
       , "}"
       ]
-
--- Ops -------------------------------------------------------------------------
-
-data OpOptions = OpOptions
-  { opWidth :: Int32
-  , opHeight :: Int32
-  , opFormat :: GL.PixelInternalFormat
-  , opClamp :: GL.Clamping
-  }
-
-defaultOpOptions :: OpOptions
-defaultOpOptions = OpOptions
-  { opWidth = 1024
-  , opHeight = 1024
-  , opFormat = GL.RGBA8
-  , opClamp = GL.ClampToEdge
-  }
 
 -- Ops (fill) ------------------------------------------------------------------
 
@@ -270,15 +249,9 @@ data FillParams = FillParams
 
 instance ShaderParam FillParams where
 
-data Op params = Op
-  { opTex :: GL.TextureObject
-  , opRender :: params -> IO ()
-  , opDestroy :: IO ()
-  }
-  
 fill :: RectBuffer -> OpOptions -> IO (Op FillParams)
 fill rectBuf opts = do
-  (tex, bindFBO, destroyFBO) <- createFramebuffer (opWidth opts) (opHeight opts) (opFormat opts) (opClamp opts)
+  (tex, bindFBO, destroyFBO) <- createFramebuffer opts
   (attribs, bindShader, destroyShader) <- createShader vertT fragT False
 
   (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
@@ -328,14 +301,13 @@ data CircleParams = CircleParams
   { cpColor :: GL.Color4 Float
   , cpCenter :: GL.Vertex2 Float
   , cpRadius :: Float
-  , cpSoftness :: Float
   } deriving Generic
 
 instance ShaderParam CircleParams where
 
 circle :: RectBuffer -> OpOptions -> IO (Op CircleParams)
 circle rectBuf opts = do
-  (tex, bindFBO, destroyFBO) <- createFramebuffer (opWidth opts) (opHeight opts) (opFormat opts) (opClamp opts)
+  (tex, bindFBO, destroyFBO) <- createFramebuffer opts
   (attribs, bindShader, destroyShader) <- createShader vertT fragT True
 
   (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
@@ -371,7 +343,6 @@ circle rectBuf opts = do
       , "uniform vec4 cpColor;\n"
       , "uniform vec2 cpCenter;\n"
       , "uniform float cpRadius;\n"
-      , "uniform float cpSoftness;\n"
       , "void main() {"
       , "  float dist = distance(uv, cpCenter);"
       , "  float delta = fwidth(dist);"
@@ -389,6 +360,102 @@ circleSyn rectBuf opts params = do
     , outRender = signalValue params >>= render
     }
 
+-- Ops (blend) -----------------------------------------------------------------
+
+data BlendMode = Add | Mul
+
+data BlendOptions = BlendOptions
+  { bpOpOptions :: OpOptions
+  , bpMode :: BlendMode
+  } deriving Generic
+
+defaultBlendOptions :: BlendOptions
+defaultBlendOptions = BlendOptions
+  { bpOpOptions = defaultOpOptions
+  , bpMode = Add
+  }
+
+data BlendParams = BlendParams
+  { bpFactor :: Float
+  , bpTex1 :: Tex1
+  , bpTex2 :: Tex2
+  } deriving Generic
+
+instance ShaderParam BlendParams where
+
+blend :: RectBuffer -> BlendOptions -> IO (Op BlendParams)
+blend rectBuf opts = do
+  (tex, bindFBO, destroyFBO) <- createFramebuffer (bpOpOptions opts)
+  (attribs, bindShader, destroyShader) <- createShader vertT fragT True
+
+  (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
+
+  pure $ Op
+    { opTex = tex
+    , opRender = \params -> do
+        bindFBO
+        bindShader params
+        drawRect
+    , opDestroy = do
+        destroyFBO
+        destroyShader
+        destroyDrawRect
+    }
+  where
+    vertT = T.unlines
+      [ "#version 460"
+      , "in vec3 a_pos;"
+      , "in vec2 a_uv;"
+      , "out vec2 uv;"
+      , "void main() {"
+      , "    gl_Position = vec4(a_pos, 1.0);"
+      , "    uv = a_uv;"
+      , "}"
+      ]
+
+    fragT = T.unlines
+      [ "#version 460"
+      , "#include \"assets/lygia/generative/cnoise.glsl\""
+      , "in vec2 uv;"
+      , "out vec4 fragment;"
+      , "uniform sampler2D bpTex1;"
+      , "uniform sampler2D bpTex2;"
+      , "uniform float bpFactor;\n"
+      , "void main() {"
+      , case bpMode opts of
+          Add -> "  fragment = texture2D(bpTex1, uv) * bpFactor + texture2D(bpTex2, uv) * (1 - bpFactor);"
+          Mul -> "  fragment = texture2D(bpTex1, uv) * texture2D(bpTex2, uv);"
+      , "}"
+      ]
+
+data BlendParamsSyn = BlendParamsSyn
+  { bpsFactor :: Float
+  }
+
+blendSyn :: MonadIO m => RectBuffer -> BlendOptions -> Signal BlendParamsSyn -> Syn Out m a -> Syn Out m a -> Syn Out m a
+blendSyn rectBuf opts params a b = do
+  Op tex render destroy <- unsafeNonBlockingIO $ blend rectBuf opts
+
+  let out [aOut, bOut] = Out
+        { outTex = tex
+        , outRender = do
+            outRender aOut
+            outRender bOut
+            params' <- signalValue params
+            print "here boooy"
+            render $ BlendParams
+              { bpFactor = bpsFactor params'
+              , bpTex1 = Tex1 $ outTex aOut
+              , bpTex2 = Tex2 $ outTex bOut
+              }
+        }
+      out l = Out
+        { outTex = tex
+        , outRender = print (length l) >> pure ()
+        }
+
+  finalize (liftIO destroy) $ mapView out $ asum [ mapView pure a, mapView pure b ]
+
 --------------------------------------------------------------------------------
 
 data TestOpts = TestOpts
@@ -405,7 +472,7 @@ testrender = do
 
   ---
 
-  (tex, bindFBO, destroyFBO) <- createFramebuffer 512 512 GL.RGBA8 GL.ClampToEdge
+  (tex, bindFBO, destroyFBO) <- createFramebuffer (OpOptions 512 512 GL.RGBA8 GL.ClampToEdge)
   (attribs, bindShader, destroyShader) <- createShader vertT fragT True
 
   (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
