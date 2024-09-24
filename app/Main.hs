@@ -6,7 +6,6 @@ import Control.Monad.IO.Class
 
 import Data.Foldable
 import Data.IORef
-import Data.Monoid
 import Data.Void
 
 import qualified Graphics.Rendering.OpenGL as GL
