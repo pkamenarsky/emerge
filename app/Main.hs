@@ -17,7 +17,7 @@ import Render
 import Syn
 import Syn.Run
 
-scene :: MonadIO m => RectBuffer -> Event () -> Signal (Double, Double) -> Syn Out m a
+scene :: MonadIO m => RectBuffer -> Event () -> Signal (Double, Double) -> Syn [Out] m a
 scene rectBuf mouseClick mousePos = do
   asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.05), on mouseClick ]
   asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.1), on mouseClick ]
@@ -59,7 +59,7 @@ main = do
          rectBuf <- createRectBuffer
          (blitToScreen, _) <- blit rectBuf (GL.Size 1024 1024)
 
-         for_ mWin (go False mouseClick blitToScreen Nothing $ reinterpret $ mapView (Last . Just) $ scene rectBuf mouseClick mousePos)
+         for_ mWin (go False mouseClick blitToScreen Nothing $ reinterpret $ scene rectBuf mouseClick mousePos)
 
   putStrLn "bye..."
 
@@ -71,7 +71,11 @@ main = do
     clicked False True = True
     clicked _ _ = False
 
-    go :: Bool -> Event () -> (GL.TextureObject -> IO ()) -> Maybe Out -> Run (Last Out) IO Void -> GLFW.Window -> IO ()
+    maybeHead :: [a] -> Maybe a
+    maybeHead (a:_) = Just a
+    maybeHead _ = Nothing
+
+    go :: Bool -> Event () -> (GL.TextureObject -> IO ()) -> Maybe Out -> Run [Out] IO Void -> GLFW.Window -> IO ()
     go mouseButtonSt e@(Event mouseClick) blitToScreen mOut run win = do
       st <- GLFW.getMouseButton win GLFW.MouseButton'1
 
@@ -90,7 +94,7 @@ main = do
       -- [0]
       (next', rOut') <- unblock next
 
-      let mOut' = asum [rOut' >>= getLast, rOut >>= getLast, mOut]
+      let mOut' = asum [rOut' >>= maybeHead, rOut >>= maybeHead, mOut]
 
       for_ mOut' $ \out -> do
         outRender out

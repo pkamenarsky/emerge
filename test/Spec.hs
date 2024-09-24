@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
 
 import Syn
@@ -10,6 +11,7 @@ import Control.Concurrent
 import Data.IORef
 import Data.Foldable (asum)
 import qualified Data.List.NonEmpty as NE
+import qualified Data.Monoid as M
 import Data.Semigroup
 
 s1 :: Monad f => Alternative f => Semigroup (f String) => (forall a. String -> f a) -> (forall a. IO () -> f a -> f a) -> (t -> f ()) -> t -> f a
@@ -55,8 +57,8 @@ s1 view finalize on e = do
   asum [ view "C", on e ]
   s1 view finalize on e
 
-test :: IO ()
-test = do
+_test :: IO ()
+_test = do
   e <- newEvent :: IO (Event ())
   Just fire <- animate (fromArr $ toArr $ reinterpret $ s1 view finalize on e) putStrLn
 
@@ -69,8 +71,8 @@ test = do
 
   fire e ()
 
-test2 :: IO ()
-test2 = do
+_test2 :: IO ()
+_test2 = do
   e <- SynT.newEvent :: IO (SynT.Event ())
   (fire, go) <- SynT.run (s1 SynT.view (\_ x -> x) SynT.on e) putStrLn
 
@@ -82,8 +84,30 @@ test2 = do
   fire e ()
   fire e ()
 
-main :: IO ()
-main = do
+--------------------------------------------------------------------------------
+
+cmp :: Eq a => Show a => IORef a -> a -> IO ()
+cmp ref should = do
+  is <- readIORef ref
+  if is == should
+    then putStrLn "OK"
+    else putStrLn $ "FAIL (" <> show is <> " should be " <> show should <> ")"
+
+testMapView :: IO ()
+testMapView = do
+  ref <- newIORef []
+  e <- newEvent :: IO (Event ())
+  Just fire <- animate (fromArr $ toArr $ reinterpret $ syn e) (writeIORef ref)
+
+  fire e ()
+  cmp ref [3]
+  where
+    syn e = do
+      mapView (\as -> [sum as]) $ asum [ view [1], view [2], on e ]
+      syn e
+
+testAltSem :: IO ()
+testAltSem = do
   ref <- newIORef ""
   e <- newEvent :: IO (Event ())
   Just fire <- animate (fromArr $ toArr $ reinterpret $ s1 e) (writeIORef ref)
@@ -103,12 +127,6 @@ main = do
   cmp ref "AAC"
 
   where
-    cmp ref should = do
-      is <- readIORef ref
-      if is == should
-        then putStrLn "OK"
-        else putStrLn $ "FAIL (" <> is <> " should be " <> should <> ")"
-
     s1 e = do
       pure ()
       r <- sconcat $ NE.fromList [ asum [ view "A", view "A", view "C", on e >> pure "R" ], on e >> pure "R", on e >> pure "S" ]
@@ -144,3 +162,8 @@ main = do
       pure ()
       asum [ view "C", on e ]
       s1 e
+
+main :: IO ()
+main = do
+  testAltSem
+  testMapView

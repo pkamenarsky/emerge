@@ -24,6 +24,7 @@ import Data.Void
 data SynF v m next
   = View v next
   | Blocked next
+  | forall u a. Monoid u => MapView (u -> v) (Syn u m a) (a -> next)
   | forall a. Lift (m a) (a -> next)
   | forall a. Finalize (m ()) (Syn v m a) (a -> next)
   | forall a. Or (Syn v m a) (Syn v m a) (a -> next)
@@ -44,14 +45,8 @@ instance Monoid a => Semigroup (Syn v m a) where
 instance MonadTrans (Syn v) where
   lift m = Syn $ liftF $ Lift m id
 
-mapView :: (u -> v) -> Syn u m a -> Syn v m a
-mapView _ (Syn (Pure a)) = Syn $ Pure a
-mapView f (Syn (Free (View u next))) = Syn $ Free $ View (f u) (unSyn $ mapView f $ Syn next)
-mapView f (Syn (Free (Lift m next))) = Syn $ Free $ Lift m (fmap (unSyn . mapView f . Syn) next)
-mapView f (Syn (Free (Finalize fin s next))) = Syn $ Free $ Finalize fin (mapView f s) (fmap (unSyn . mapView f . Syn) next)
-mapView f (Syn (Free (Blocked next))) = Syn $ Free $ Blocked (unSyn $ mapView f $ Syn next)
-mapView f (Syn (Free (Or a b next))) = Syn $ Free $ Or (mapView f a) (mapView f b) (fmap (unSyn . mapView f . Syn) next)
-mapView f (Syn (Free (And a b next))) = Syn $ Free $ And (mapView f a) (mapView f b) (fmap (unSyn . mapView f . Syn) next)
+mapView :: Monoid u => (u -> v) -> Syn u m a -> Syn v m a
+mapView f syn = Syn $ liftF $ MapView f syn id
 
 forever :: Syn v m a
 forever = Syn $ Free $ Blocked $ unSyn forever
@@ -98,6 +93,16 @@ reinterpret (Syn (Pure a)) = pure a
 reinterpret (Syn (Free (View v next)))   = yv v >> reinterpret (Syn next)
 reinterpret (Syn (Free (Blocked next)))  = yb >> reinterpret (Syn next)
 reinterpret (Syn (Free (Lift act next))) = ya act >>= reinterpret . Syn . next
+
+reinterpret (Syn (Free (MapView f syn next))) = go (unRun $ reinterpret syn)
+  where
+    go y = do
+      case y of
+        Pure a -> reinterpret (Syn $ next a)
+        Free (YV v next')  -> yv (f v) >> go next'
+        Free (YA a next')  -> ya a >>= go . next'
+        Free (YB next')    -> yb >> go next'
+        Free (YF fs next') -> yf fs >> go next'
 
 reinterpret (Syn (Free (Finalize fin syn next))) = do
   yf [fin]

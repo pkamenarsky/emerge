@@ -74,6 +74,11 @@ data Op params = Op
   , opDestroy :: IO ()
   }
 
+data Out = Out
+  { outTex :: GL.TextureObject
+  , outRender :: IO ()
+  }
+
 --------------------------------------------------------------------------------
 
 data RectBuffer = RectBuffer GL.BufferObject
@@ -286,11 +291,11 @@ fill rectBuf opts = do
       , "}"
       ]
 
-fillSyn :: MonadIO m => RectBuffer -> OpOptions -> Signal FillParams -> Syn Out m a
+fillSyn :: MonadIO m => RectBuffer -> OpOptions -> Signal FillParams -> Syn [Out] m a
 fillSyn rectBuf opts params = do
   Op tex render destroy <- unsafeNonBlockingIO $ fill rectBuf opts
 
-  finalize (liftIO destroy) $ view $ Out
+  finalize (liftIO destroy) $ view $ pure $ Out
     { outTex = tex
     , outRender = signalValue params >>= render
     }
@@ -351,11 +356,11 @@ circle rectBuf opts = do
       , "}"
       ]
 
-circleSyn :: MonadIO m => RectBuffer -> OpOptions -> Signal CircleParams -> Syn Out m a
+circleSyn :: MonadIO m => RectBuffer -> OpOptions -> Signal CircleParams -> Syn [Out] m a
 circleSyn rectBuf opts params = do
   Op tex render destroy <- unsafeNonBlockingIO $ circle rectBuf opts
 
-  finalize (liftIO destroy) $ view $ Out
+  finalize (liftIO destroy) $ view $ pure $ Out
     { outTex = tex
     , outRender = signalValue params >>= render
     }
@@ -432,29 +437,28 @@ data BlendParamsSyn = BlendParamsSyn
   { bpsFactor :: Float
   }
 
-blendSyn :: MonadIO m => RectBuffer -> BlendOptions -> Signal BlendParamsSyn -> Syn Out m a -> Syn Out m a -> Syn Out m a
+blendSyn :: MonadIO m => RectBuffer -> BlendOptions -> Signal BlendParamsSyn -> Syn [Out] m a -> Syn [Out] m a -> Syn [Out] m a
 blendSyn rectBuf opts params a b = do
   Op tex render destroy <- unsafeNonBlockingIO $ blend rectBuf opts
 
-  let out [aOut, bOut] = Out
+  let out [aOut, bOut] = pure $ Out
         { outTex = tex
         , outRender = do
             outRender aOut
             outRender bOut
             params' <- signalValue params
-            print "here boooy"
             render $ BlendParams
               { bpFactor = bpsFactor params'
               , bpTex1 = Tex1 $ outTex aOut
               , bpTex2 = Tex2 $ outTex bOut
               }
         }
-      out l = Out
+      out l = pure $ Out
         { outTex = tex
         , outRender = print (length l) >> pure ()
         }
 
-  finalize (liftIO destroy) $ mapView out $ asum [ mapView pure a, mapView pure b ]
+  finalize (liftIO destroy) $ mapView out $ asum [ a, b ]
 
 --------------------------------------------------------------------------------
 
@@ -537,6 +541,7 @@ testrender = do
 
 --------------------------------------------------------------------------------
 
+-- TODO: don't include same file twice
 -- TODO: embed basePath directory in binary using TH
 resolveGLSLFile :: FilePath -> IO Text
 resolveGLSLFile path = do
@@ -560,42 +565,3 @@ resolveGLSL glsl = do
         Nothing      -> pure line
     | line <- T.lines glsl
     ]
-
---------------------------------------------------------------------------------
-
-data Out = Out
-  { outTex :: GL.TextureObject
-  , outRender :: IO ()
-  }
-
-data CompositeOpts = CompositeOpts
-  { coptsMode :: Int
-  , coptsWidth :: Int32
-  , coptsHeight :: Int32
-  , coptsA :: Syn Out IO ()
-  , coptsB :: Syn Out IO ()
-  }
-
-composite :: CompositeOpts -> Syn Out IO ()
-composite opts = do
---   (fbo, tex) <- unsafeNonBlockingIO $ do
---     fbo <- with1 $ glCreateFramebuffers 1
---     tex <- with1 $ glCreateTextures GL_TEXTURE_2D 1
--- 
---     glBindTexture GL_TEXTURE_2D tex
---     glTexStorage2D GL_TEXTURE_2D 1 GL_RGBA8 (width opts) (height opts)
---     glClearTexImage tex 0 GL_RGBA GL_UNSIGNED_BYTE undefined
--- 
---     pure (fbo, tex)
-
-  let fbo = undefined
-      tex = undefined
-  mapView (combine fbo tex) $ mapView ((,Nothing) . Just) (coptsA opts) <|> mapView ((Nothing,) . Just) (coptsA opts)
-
-  where
-    combine fbo tex (Just aOut, Just bOut) = Out
-      { outTex = tex
-      , outRender = do
-          outRender aOut
-          outRender bOut
-      }
