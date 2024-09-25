@@ -16,6 +16,7 @@ import Data.IORef
 import Data.ObjectName
 import Data.Machine.MealyT
 import Data.StateVar
+import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
@@ -182,7 +183,7 @@ createShader vertT fragT uv = do
   a_pos <- get $ GL.attribLocation program "a_pos"
   a_uv <- if uv then fmap Just $ get $ GL.attribLocation program "a_uv" else pure Nothing
 
-  set <- shaderParam program
+  set <- shaderParam defaultShaderParamDeriveOpts program
 
   return (ShaderAttribs { sa_pos = a_pos, sa_uv = a_uv }, bind program set, destroy vertShader fragShader program)
     where
@@ -541,27 +542,27 @@ testrender = do
 
 --------------------------------------------------------------------------------
 
--- TODO: don't include same file twice
 -- TODO: embed basePath directory in binary using TH
-resolveGLSLFile :: FilePath -> IO Text
-resolveGLSLFile path = do
-  file <- T.readFile path
-
-  T.unlines <$> sequence
-    [ case T.stripPrefix "#include \"" line >>= T.stripSuffix "\"" of
-        Just include -> resolveGLSLFile (basePath </> T.unpack include)
-        Nothing      -> pure line
-    | line <- T.lines file
-    ]
-
-  where
-    basePath = Path.takeDirectory path
-
 resolveGLSL :: T.Text -> IO Text
 resolveGLSL glsl = do
   T.unlines <$> sequence
-    [ case T.stripPrefix "#include \"" line >>= T.stripSuffix "\"" of
-        Just include -> resolveGLSLFile (T.unpack include)
+    [ case strip line of
+        Just include -> rsv mempty (T.unpack include)
         Nothing      -> pure line
     | line <- T.lines glsl
     ]
+  where
+    strip line = T.stripPrefix "#include \"" line >>= T.stripSuffix "\""
+
+    rsv resolved path = do
+      file <- T.readFile path
+    
+      T.unlines <$> sequence
+        [ case strip line of
+            Just include -> let incpath = Path.takeDirectory path </> T.unpack include in
+              if S.member incpath resolved
+                then pure mempty
+                else rsv (S.insert incpath resolved) incpath
+            Nothing -> pure line
+        | line <- T.lines file
+        ]

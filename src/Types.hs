@@ -123,10 +123,10 @@ instance {-# OVERLAPPING #-} KnownSymbol name => GShaderParam (M1 S ('MetaSel ('
       nameP = Proxy
 
 class ShaderParam a where
-  shaderParam :: GL.Program -> IO (a -> IO ())
-  default shaderParam :: Generic a => GShaderParam (Rep a) => GL.Program -> IO (a -> IO ())
-  shaderParam program = do
-    set <- gShaderParam defaultShaderParamDeriveOpts program
+  shaderParam :: ShaderParamDeriveOpts -> GL.Program -> IO (a -> IO ())
+  default shaderParam :: Generic a => GShaderParam (Rep a) => ShaderParamDeriveOpts -> GL.Program -> IO (a -> IO ())
+  shaderParam opts program = do
+    set <- gShaderParam opts program
     pure $ \a -> set (from a)
 
 -- For shaders without uniforms

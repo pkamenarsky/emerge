@@ -26,6 +26,7 @@ source-repository head
 library
   exposed-modules:
       Render
+      SDF
       Syn
       Syn.Run
       Syn.Threads
@@ -44,6 +45,7 @@ library
     , StateVar
     , base >=4.7 && <5
     , bytestring
+    , containers
     , filepath
     , free
     , machines
@@ -68,6 +70,7 @@ executable emerge-exe
     , StateVar
     , base >=4.7 && <5
     , bytestring
+    , containers
     , emerge
     , filepath
     , free
@@ -94,6 +97,7 @@ test-suite emerge-test
     , StateVar
     , base >=4.7 && <5
     , bytestring
+    , containers
     , emerge
     , filepath
     , free
