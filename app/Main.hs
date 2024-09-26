@@ -8,6 +8,7 @@ import Data.Foldable
 import Data.IORef
 import Data.StateVar
 import Data.Void
+import qualified Data.Vector.Storable as V
 
 import qualified Graphics.Rendering.OpenGL as GL
 import qualified Graphics.UI.GLFW as GLFW
@@ -18,23 +19,29 @@ import SDF
 import Syn
 import Syn.Run
 
+import GHC.Word
+import GHC.Word
+
+import qualified Sound.RtMidi as RT
 
 import Debug.Trace (traceIO)
 
-scene :: MonadIO m => RectBuffer -> Event () -> Signal (Double, Double) -> Syn [Out] m a
-scene rectBuf mouseClick mousePos = do
+scene :: MonadIO m => RectBuffer -> Event () -> Signal (Double, Double) -> Signal Word8 -> Syn [Out] m a
+scene rectBuf mouseClick mousePos cc = do
   -- asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.05), on mouseClick ]
   -- asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.1), on mouseClick ]
   -- asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.15), on mouseClick ]
 
   sdfSyn rectBuf defaultOpOptions
-    (trace (pure $ defaultTraceParams { tpMaxIterations = 10, tpFresnelBase = 1, tpFresnelExp = 2 }))
+    (trace traceParams)
     (rotate rotateY $ rotate rotateX $ box (pure $ BoxParams (GL.Vector3 0.5 0.5 0.3)))
   -- blendSyn rectBuf defaultBlendOptions (pure $ BlendParamsSyn 0.5)
   --   (fillSyn rectBuf defaultOpOptions fillParams)
   --   (circleSyn rectBuf defaultOpOptions (circleParams 0.15))
 
   where
+    traceParams = fmap (\c -> defaultTraceParams { tpMaxIterations = fromIntegral c, tpFresnelBase = 1, tpFresnelExp = 2 }) cc
+
     rotateX :: Signal (RotateParams Value)
     rotateX = fmap (\(x, _) -> RotateParams (GL.Vector3 0 1 0) (tf $ x / (-100))) mousePos
 
@@ -53,6 +60,15 @@ scene rectBuf mouseClick mousePos = do
 
 main :: IO ()
 main = do
+  dev <- RT.defaultInput
+  RT.openPort dev 1 "syn"
+
+  cc <- newIORef 0 :: IO (IORef Word8)
+
+  RT.setCallback dev $ \ts msg -> do
+    print (msg V.! 2)
+    writeIORef cc (msg V.! 2)
+
   _ <- GLFW.init
 
   GLFW.windowHint $ GLFW.WindowHint'OpenGLDebugContext True
@@ -74,7 +90,7 @@ main = do
          rectBuf <- createRectBuffer
          (blitToScreen, _) <- blit rectBuf (GL.Size 1024 1024)
 
-         for_ mWin (go False mouseClick blitToScreen Nothing $ reinterpret $ scene rectBuf mouseClick mousePos)
+         for_ mWin (go False mouseClick blitToScreen Nothing $ reinterpret $ scene rectBuf mouseClick mousePos (Signal $ readIORef cc))
 
   putStrLn "bye..."
 
@@ -129,5 +145,5 @@ main = do
       if close || esc == GLFW.KeyState'Pressed
         then pure ()
         else do
-          GLFW.waitEvents
+          GLFW.pollEvents
           go mouseButtonSt' e blitToScreen mOut' next' win

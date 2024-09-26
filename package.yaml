@@ -36,6 +36,7 @@ dependencies:
 - text
 - tidal
 - transformers
+- vector
 
 ghc-options:
 - -Wall
