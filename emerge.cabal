@@ -50,6 +50,7 @@ library
     , free
     , machines
     , stm
+    , string-interpolate
     , text
     , tidal
     , transformers
@@ -77,6 +78,7 @@ executable emerge-exe
     , free
     , machines
     , stm
+    , string-interpolate
     , text
     , tidal
     , transformers
@@ -105,6 +107,7 @@ test-suite emerge-test
     , free
     , machines
     , stm
+    , string-interpolate
     , text
     , tidal
     , transformers

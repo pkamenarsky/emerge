@@ -31,6 +31,7 @@ dependencies:
 - OpenGL
 - StateVar
 - stm
+- string-interpolate
 - text
 - tidal
 - transformers

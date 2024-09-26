@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
 
 module Render where
 
@@ -18,6 +19,7 @@ import Data.ObjectName
 import Data.Machine.MealyT
 import Data.StateVar
 import qualified Data.Set as S
+import Data.String.Interpolate (i)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
@@ -225,25 +227,25 @@ blit rectBuf viewport = do
         destroyDrawRect
     ) 
   where
-    vertT = T.unlines
-      [ "in vec3 a_pos;"
-      , "in vec2 a_uv;"
-      , "varying vec2 uv;"
-      , "void main()"
-      , "{\n"
-      , "    gl_Position = vec4(a_pos, 1.0);"
-      , "    uv = a_uv;"
-      , "}\n"
-      ]
+    vertT = [i|
+in vec3 a_pos;
+in vec2 a_uv;
 
-    fragT = T.unlines
-      [ "uniform sampler2D blitSource;"
-      , "in vec2 uv;"
-      , "void main()"
-      , "{"
-      , "  gl_FragColor = texture2D(blitSource, uv);"
-      , "}"
-      ]
+varying vec2 uv;
+
+void main() {
+    uv = a_uv;
+    gl_Position = vec4(a_pos, 1.0);
+} |]
+      
+    fragT = [i|
+in vec2 uv;
+
+uniform sampler2D blitSource;
+
+void main() {
+  gl_FragColor = texture2D(blitSource, uv);
+} |]
 
 -- Ops (fill) ------------------------------------------------------------------
 
@@ -272,19 +274,19 @@ fill rectBuf opts = do
         destroyDrawRect
     }
   where
-    vertT = T.unlines
-      [ "in vec3 a_pos;"
-      , "void main() {"
-      , "    gl_Position = vec4(a_pos, 1.0);"
-      , "}"
-      ]
+    vertT = [i|
+in vec3 a_pos;
 
-    fragT = T.unlines
-      [ "uniform vec4 foColor;\n"
-      , "void main() {"
-      , "  gl_FragColor = foColor;"
-      , "}"
-      ]
+void main() {
+    gl_Position = vec4(a_pos, 1.0);
+} |]
+
+    fragT = [i|
+uniform vec4 foColor;
+
+void main() {
+  gl_FragColor = foColor;
+} |]
 
 fillSyn :: MonadIO m => RectBuffer -> OpOptions -> Signal FillParams -> Syn [Out] m a
 fillSyn rectBuf opts params = do
@@ -324,28 +326,31 @@ circle rectBuf opts = do
         destroyDrawRect
     }
   where
-    vertT = T.unlines
-      [ "in vec3 a_pos;"
-      , "in vec2 a_uv;"
-      , "varying vec2 uv;"
-      , "void main() {"
-      , "  gl_Position = vec4(a_pos, 1.0);"
-      , "  uv = a_uv;"
-      , "}"
-      ]
+    vertT = [i|
+in vec3 a_pos;
+in vec2 a_uv;
 
-    fragT = T.unlines
-      [ "in vec2 uv;"
-      , "uniform vec4 cpColor;"
-      , "uniform vec2 cpCenter;"
-      , "uniform float cpRadius;"
-      , "void main() {"
-      , "  float dist = distance(uv, cpCenter);"
-      , "  float delta = fwidth(dist);"
-      , "  float alpha = smoothstep(cpRadius - delta, cpRadius, dist);"
-      , "  gl_FragColor = cpColor * (1. - alpha);"
-      , "}"
-      ]
+varying vec2 uv;
+
+void main() {
+  gl_Position = vec4(a_pos, 1.0);
+  uv = a_uv;
+} |]
+
+    fragT = [i|
+in vec2 uv;
+
+uniform vec4 cpColor;
+uniform vec2 cpCenter;
+uniform float cpRadius;
+
+void main() {
+  float dist = distance(uv, cpCenter);
+  float delta = fwidth(dist);
+  float alpha = smoothstep(cpRadius - delta, cpRadius, dist);
+
+  gl_FragColor = cpColor * (1. - alpha);
+} |]
 
 circleSyn :: MonadIO m => RectBuffer -> OpOptions -> Signal CircleParams -> Syn [Out] m a
 circleSyn rectBuf opts params = do
@@ -398,27 +403,33 @@ blend rectBuf opts = do
         destroyDrawRect
     }
   where
-    vertT = T.unlines
-      [ "in vec3 a_pos;"
-      , "in vec2 a_uv;"
-      , "varying vec2 uv;"
-      , "void main() {"
-      , "    gl_Position = vec4(a_pos, 1.0);"
-      , "    uv = a_uv;"
-      , "}"
-      ]
+    vertT = [i|
+in vec3 a_pos;
+in vec2 a_uv;
 
-    fragT = T.unlines
-      [ "in vec2 uv;"
-      , "uniform sampler2D bpTex1;"
-      , "uniform sampler2D bpTex2;"
-      , "uniform float bpFactor;\n"
-      , "void main() {"
-      , case bpMode opts of
-          Add -> "  gl_FragColor = texture2D(bpTex1, uv) * bpFactor + texture2D(bpTex2, uv) * (1. - bpFactor);"
-          Mul -> "  gl_FragColor = texture2D(bpTex1, uv) * texture2D(bpTex2, uv);"
-      , "}"
-      ]
+varying vec2 uv;
+
+void main() {
+    uv = a_uv;
+
+    gl_Position = vec4(a_pos, 1.0);
+} |]
+
+    fragT = [i|
+in vec2 uv;
+
+uniform sampler2D bpTex1;
+uniform sampler2D bpTex2;
+uniform float bpFactor;
+
+void main() {
+  #{mode}
+} |]
+
+    mode :: T.Text
+    mode = case bpMode opts of
+      Add -> "  gl_FragColor = texture2D(bpTex1, uv) * bpFactor + texture2D(bpTex2, uv) * (1. - bpFactor);"
+      Mul -> "  gl_FragColor = texture2D(bpTex1, uv) * texture2D(bpTex2, uv);"
 
 data BlendParamsSyn = BlendParamsSyn
   { bpsFactor :: Float
