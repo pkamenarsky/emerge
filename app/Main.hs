@@ -18,6 +18,7 @@ import SDF
 import Syn
 import Syn.Run
 
+
 import Debug.Trace (traceIO)
 
 scene :: MonadIO m => RectBuffer -> Event () -> Signal (Double, Double) -> Syn [Out] m a

@@ -29,6 +29,7 @@ dependencies:
 - machines
 - ObjectName
 - OpenGL
+- RtMidi
 - StateVar
 - stm
 - string-interpolate

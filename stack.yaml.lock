@@ -3,7 +3,14 @@
 # For more information, please see the documentation at:
 #   https://docs.haskellstack.org/en/stable/lock_files
 
-packages: []
+packages:
+- completed:
+    hackage: RtMidi-0.8.0.0@sha256:23b0f994be7dc57478d17ff4e3fc359984317630cf5b6c4d59196e8e64106f1e,3892
+    pantry-tree:
+      sha256: a4d71450d4a51b8a1e25fe890570b6616d529bcfb46e2109206f3a767af7124f
+      size: 861
+  original:
+    hackage: RtMidi-0.8.0.0
 snapshots:
 - completed:
     sha256: a27a5761890ade44d7dd21a5f5f93c87e60b9c063655fff835d69dd1071474f0
