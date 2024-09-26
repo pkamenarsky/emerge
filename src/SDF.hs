@@ -113,4 +113,8 @@ translate params sdf = SDF $ \pos -> do
   pure out
 
 compile :: [SDFDef] -> T.Text
-compile = undefined
+compile defs = T.intercalate "\n" $ mconcat $
+  [ [ undefined
+    | include <- fmap sdfIncludes defs
+    ]
+  ]

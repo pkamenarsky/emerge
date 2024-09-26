@@ -8,6 +8,7 @@ import Control.Applicative
 import Control.Concurrent.MVar
 import Control.Monad
 import Control.Monad.IO.Class
+import qualified Control.Monad.Trans.State as ST
 
 import qualified Data.ByteString as B
 import Data.ByteString (ByteString)
@@ -224,26 +225,23 @@ blit rectBuf viewport = do
         destroyDrawRect
     ) 
   where
-    vertT = mconcat
-      [ "#version 460\n"
-      , "in vec3 a_pos;\n"
-      , "in vec2 a_uv;\n"
-      , "out vec2 uv;\n"
-      , "void main()\n"
+    vertT = T.unlines
+      [ "in vec3 a_pos;"
+      , "in vec2 a_uv;"
+      , "varying vec2 uv;"
+      , "void main()"
       , "{\n"
-      , "    gl_Position = vec4(a_pos, 1.0);\n"
-      , "    uv = a_uv;\n"
+      , "    gl_Position = vec4(a_pos, 1.0);"
+      , "    uv = a_uv;"
       , "}\n"
       ]
 
     fragT = T.unlines
-      [ "#version 460"
-      , "uniform sampler2D blitSource;\n"
+      [ "uniform sampler2D blitSource;"
       , "in vec2 uv;"
-      , "out vec4 fragment;"
       , "void main()"
       , "{"
-      , "  fragment = texture2D(blitSource, uv);"
+      , "  gl_FragColor = texture2D(blitSource, uv);"
       , "}"
       ]
 
@@ -275,20 +273,16 @@ fill rectBuf opts = do
     }
   where
     vertT = T.unlines
-      [ "#version 460"
-      , "in vec3 a_pos;"
+      [ "in vec3 a_pos;"
       , "void main() {"
       , "    gl_Position = vec4(a_pos, 1.0);"
       , "}"
       ]
 
     fragT = T.unlines
-      [ "#version 460"
-      , "#include \"assets/lygia/generative/cnoise.glsl\""
-      , "out vec4 fragment;"
-      , "uniform vec4 foColor;\n"
+      [ "uniform vec4 foColor;\n"
       , "void main() {"
-      , "  fragment = foColor;"
+      , "  gl_FragColor = foColor;"
       , "}"
       ]
 
@@ -331,10 +325,9 @@ circle rectBuf opts = do
     }
   where
     vertT = T.unlines
-      [ "#version 460"
-      , "in vec3 a_pos;"
+      [ "in vec3 a_pos;"
       , "in vec2 a_uv;"
-      , "out vec2 uv;"
+      , "varying vec2 uv;"
       , "void main() {"
       , "  gl_Position = vec4(a_pos, 1.0);"
       , "  uv = a_uv;"
@@ -342,18 +335,15 @@ circle rectBuf opts = do
       ]
 
     fragT = T.unlines
-      [ "#version 460"
-      , "#include \"assets/lygia/generative/cnoise.glsl\""
-      , "out vec4 fragment;"
-      , "in vec2 uv;"
-      , "uniform vec4 cpColor;\n"
-      , "uniform vec2 cpCenter;\n"
-      , "uniform float cpRadius;\n"
+      [ "in vec2 uv;"
+      , "uniform vec4 cpColor;"
+      , "uniform vec2 cpCenter;"
+      , "uniform float cpRadius;"
       , "void main() {"
       , "  float dist = distance(uv, cpCenter);"
       , "  float delta = fwidth(dist);"
       , "  float alpha = smoothstep(cpRadius - delta, cpRadius, dist);"
-      , "  fragment = cpColor * (1 - alpha);"
+      , "  gl_FragColor = cpColor * (1. - alpha);"
       , "}"
       ]
 
@@ -409,10 +399,9 @@ blend rectBuf opts = do
     }
   where
     vertT = T.unlines
-      [ "#version 460"
-      , "in vec3 a_pos;"
+      [ "in vec3 a_pos;"
       , "in vec2 a_uv;"
-      , "out vec2 uv;"
+      , "varying vec2 uv;"
       , "void main() {"
       , "    gl_Position = vec4(a_pos, 1.0);"
       , "    uv = a_uv;"
@@ -420,17 +409,14 @@ blend rectBuf opts = do
       ]
 
     fragT = T.unlines
-      [ "#version 460"
-      , "#include \"assets/lygia/generative/cnoise.glsl\""
-      , "in vec2 uv;"
-      , "out vec4 fragment;"
+      [ "in vec2 uv;"
       , "uniform sampler2D bpTex1;"
       , "uniform sampler2D bpTex2;"
       , "uniform float bpFactor;\n"
       , "void main() {"
       , case bpMode opts of
-          Add -> "  fragment = texture2D(bpTex1, uv) * bpFactor + texture2D(bpTex2, uv) * (1 - bpFactor);"
-          Mul -> "  fragment = texture2D(bpTex1, uv) * texture2D(bpTex2, uv);"
+          Add -> "  gl_FragColor = texture2D(bpTex1, uv) * bpFactor + texture2D(bpTex2, uv) * (1. - bpFactor);"
+          Mul -> "  gl_FragColor = texture2D(bpTex1, uv) * texture2D(bpTex2, uv);"
       , "}"
       ]
 
@@ -544,25 +530,29 @@ testrender = do
 
 -- TODO: embed basePath directory in binary using TH
 resolveGLSL :: T.Text -> IO Text
-resolveGLSL glsl = do
+resolveGLSL glsl = flip ST.evalStateT mempty $ do
   T.unlines <$> sequence
     [ case strip line of
-        Just include -> rsv mempty (T.unpack include)
+        Just include -> rsv (T.unpack include)
         Nothing      -> pure line
     | line <- T.lines glsl
     ]
   where
     strip line = T.stripPrefix "#include \"" line >>= T.stripSuffix "\""
 
-    rsv resolved path = do
-      file <- T.readFile path
+    rsv path = do
+      included <- ST.get
+
+      if S.member path included
+        then pure mempty
+        else do
+          ST.modify (S.insert path)
+
+          file <- liftIO $ T.readFile path
     
-      T.unlines <$> sequence
-        [ case strip line of
-            Just include -> let incpath = Path.takeDirectory path </> T.unpack include in
-              if S.member incpath resolved
-                then pure mempty
-                else rsv (S.insert incpath resolved) incpath
-            Nothing -> pure line
-        | line <- T.lines file
-        ]
+          T.unlines <$> sequence
+            [ case strip line of
+                Just include -> rsv $ Path.takeDirectory path </> T.unpack include
+                Nothing      -> pure line
+            | line <- T.lines file
+            ]
