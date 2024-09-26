@@ -6,27 +6,40 @@ import Control.Monad.IO.Class
 
 import Data.Foldable
 import Data.IORef
+import Data.StateVar
 import Data.Void
 
 import qualified Graphics.Rendering.OpenGL as GL
 import qualified Graphics.UI.GLFW as GLFW
 
 import Render
+import SDF
 
 import Syn
 import Syn.Run
 
+import Debug.Trace (traceIO)
+
 scene :: MonadIO m => RectBuffer -> Event () -> Signal (Double, Double) -> Syn [Out] m a
 scene rectBuf mouseClick mousePos = do
-  asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.05), on mouseClick ]
-  asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.1), on mouseClick ]
-  asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.15), on mouseClick ]
+  -- asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.05), on mouseClick ]
+  -- asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.1), on mouseClick ]
+  -- asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.15), on mouseClick ]
 
-  blendSyn rectBuf defaultBlendOptions (pure $ BlendParamsSyn 0.5)
-    (fillSyn rectBuf defaultOpOptions fillParams)
-    (circleSyn rectBuf defaultOpOptions (circleParams 0.15))
+  sdfSyn rectBuf defaultOpOptions
+    (trace (pure $ defaultTraceParams { tpMaxIterations = 10, tpFresnelBase = 1, tpFresnelExp = 2 }))
+    (rotate rotateY $ rotate rotateX $ box (pure $ BoxParams (GL.Vector3 0.5 0.5 0.3)))
+  -- blendSyn rectBuf defaultBlendOptions (pure $ BlendParamsSyn 0.5)
+  --   (fillSyn rectBuf defaultOpOptions fillParams)
+  --   (circleSyn rectBuf defaultOpOptions (circleParams 0.15))
 
   where
+    rotateX :: Signal (RotateParams Value)
+    rotateX = fmap (\(x, _) -> RotateParams (GL.Vector3 0 1 0) (tf $ x / (-100))) mousePos
+
+    rotateY :: Signal (RotateParams Value)
+    rotateY = fmap (\(_, y) -> RotateParams (GL.Vector3 1 0 0) (tf $ y / 100)) mousePos
+
     tf = realToFrac
 
     fillParams = flip fmap mousePos $ \(mx, my) -> FillParams
@@ -55,6 +68,8 @@ main = do
          mouseClick <- newEvent
 
          GLFW.makeContextCurrent mWin
+         GL.debugMessageCallback $= Just dbg
+
          rectBuf <- createRectBuffer
          (blitToScreen, _) <- blit rectBuf (GL.Size 1024 1024)
 
@@ -63,6 +78,11 @@ main = do
   putStrLn "bye..."
 
   where
+    dbg msg@(GL.DebugMessage _ _ _ severity _) = do
+      case severity of
+        GL.DebugSeverityNotification -> pure ()
+        _ -> traceIO $ show msg
+
     tf :: Double -> Float
     tf = realToFrac
 

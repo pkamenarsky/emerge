@@ -144,6 +144,18 @@ genericShaderParam opts program = do
 class GLSLType t where
   glslType :: Proxy t -> T.Text
 
+instance GLSLType GL.GLint where
+  glslType _ = "int"
+
+-- instance GLSLType GL.GLuint where
+--   glslType _ = "uint"
+
+instance GLSLType Float where
+  glslType _ = "float"
+
+instance GLSLType Double where
+  glslType _ = "double"
+
 instance GLSLType (GL.Vector3 Float) where
   glslType _ = "vec3"
 

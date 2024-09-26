@@ -116,12 +116,12 @@ createDrawRect (RectBuffer buf) sattrs = do
 
   GL.bindBuffer GL.ArrayBuffer $= Just buf
 
-  GL.vertexAttribArray (sa_pos sattrs) $= GL.Enabled
-  GL.vertexAttribPointer (sa_pos sattrs) $= (GL.ToFloat, GL.VertexArrayDescriptor 3 GL.Float (fi (5 * fsz)) nullPtr)
+  GL.vertexAttribArray (saPos sattrs) $= GL.Enabled
+  GL.vertexAttribPointer (saPos sattrs) $= (GL.ToFloat, GL.VertexArrayDescriptor 3 GL.Float (fi (5 * fsz)) nullPtr)
 
-  for_ (sa_uv sattrs) $ \sa_uv' -> do
-    GL.vertexAttribArray sa_uv' $= GL.Enabled
-    GL.vertexAttribPointer sa_uv' $= (GL.ToFloat, GL.VertexArrayDescriptor 2 GL.Float (fi (5 * fsz)) (nullPtr `plusPtr` (3 * fsz)))
+  for_ (saUv sattrs) $ \saUv' -> do
+    GL.vertexAttribArray saUv' $= GL.Enabled
+    GL.vertexAttribPointer saUv' $= (GL.ToFloat, GL.VertexArrayDescriptor 2 GL.Float (fi (5 * fsz)) (nullPtr `plusPtr` (3 * fsz)))
 
   pure (render vao, deleteObjectName vao)
 
@@ -156,8 +156,9 @@ createFramebuffer opts = do
       deleteObjectName tex
 
 data ShaderAttribs = ShaderAttribs
-  { sa_pos :: GL.AttribLocation
-  , sa_uv :: Maybe GL.AttribLocation
+  { saPos :: GL.AttribLocation
+  , saUv :: Maybe GL.AttribLocation
+  , saProgram :: GL.Program
   }
 
 createShader :: ShaderParam p => Text -> Text -> Bool -> IO (ShaderAttribs, p -> IO (), IO ())
@@ -188,7 +189,7 @@ createShader vertT fragT uv = do
 
   set <- shaderParam defaultShaderParamDeriveOpts program
 
-  return (ShaderAttribs { sa_pos = a_pos, sa_uv = a_uv }, bind program set, destroy vertShader fragShader program)
+  return (ShaderAttribs { saPos = a_pos, saUv = a_uv, saProgram = program }, bind program set, destroy vertShader fragShader program)
     where
       bind program setParams params = do
         GL.currentProgram $= Just program
