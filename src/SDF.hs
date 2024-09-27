@@ -237,7 +237,7 @@ void main () {
       t += h;
   }
 
-  vec3 color = vec3(1.0, 0.0, 0.0);
+  vec3 color = vec3(0.0, 0.0, 0.0);
 
   if (t < tMax) {
     vec3 currentPos = camPos + (t * ray);
