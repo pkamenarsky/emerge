@@ -32,9 +32,9 @@ data DefaultParams m = DefaultParams
   } deriving Generic
 
 instance ShaderParam (DefaultParams Values)
-instance NamedShaderParam DefaultParams
+instance NamedShaderParam (DefaultParams Fields)
 
-genShader :: ShaderParam (params Values) => NamedShaderParam params => RectBuffer -> OpOptions -> Text -> IO (Op (params Values))
+genShader :: ShaderParam (params Values) => NamedShaderParam (params Fields) => RectBuffer -> OpOptions -> Text -> IO (Op (params Values))
 genShader rectBuf opts fragT = do
   (tex, bindFBO, destroyFBO) <- createFramebuffer opts
   (attribs, bindShader, destroyShader) <- createShader Nothing fragT

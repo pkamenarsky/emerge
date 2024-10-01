@@ -61,7 +61,7 @@ data BoxParams m = BoxParams
   } deriving Generic
 
 instance ShaderParam (BoxParams Values)
-instance NamedShaderParam BoxParams
+instance NamedShaderParam (BoxParams Fields)
 
 box :: Signal (BoxParams Values) -> SDF
 box params = SDF $ \pos -> do
@@ -71,7 +71,7 @@ box params = SDF $ \pos -> do
   let opts = defaultShaderParamDeriveOpts
         { spFieldLabelModifier = (T.unpack prefix <>)
         }
-      (uniforms, np) = namedShaderParam @BoxParams opts
+      (uniforms, np) = namedShaderParam @(BoxParams Fields) opts
 
   W.tell $ pure $ SDFDef
     { sdfIncludes = ["assets/lygia/sdf/boxSDF.glsl"]
@@ -91,7 +91,7 @@ data TranslateParams m = TranslateParams
   } deriving Generic
 
 instance ShaderParam (RotateParams Values)
-instance NamedShaderParam RotateParams
+instance NamedShaderParam (RotateParams Fields)
 
 translate :: Signal (GL.Vector3 Float) -> SDF -> SDF
 translate params sdf = SDF $ \pos -> do
@@ -101,7 +101,7 @@ translate params sdf = SDF $ \pos -> do
   let opts = defaultShaderParamDeriveOpts
         { spFieldLabelModifier = (T.unpack prefix <>)
         }
-      (uniforms, np) = namedShaderParam @TranslateParams opts
+      (uniforms, np) = namedShaderParam @(TranslateParams Fields) opts
 
   W.tell $ pure $ SDFDef
     { sdfIncludes = []
@@ -125,7 +125,7 @@ data RotateParams m = RotateParams
   } deriving Generic
 
 instance ShaderParam (TranslateParams Values)
-instance NamedShaderParam TranslateParams
+instance NamedShaderParam (TranslateParams Fields)
 
 rotate :: Signal (RotateParams Values) -> SDF -> SDF
 rotate params sdf = SDF $ \pos -> do
@@ -135,7 +135,7 @@ rotate params sdf = SDF $ \pos -> do
   let opts = defaultShaderParamDeriveOpts
         { spFieldLabelModifier = (T.unpack prefix <>)
         }
-      (uniforms, np) = namedShaderParam @RotateParams opts
+      (uniforms, np) = namedShaderParam @(RotateParams Fields) opts
 
   W.tell $ pure $ SDFDef
     { sdfIncludes = ["assets/lygia/math/rotate3d.glsl"]
@@ -178,7 +178,7 @@ data TraceParams m = TraceParams
   } deriving Generic
 
 instance ShaderParam (TraceParams Values)
-instance NamedShaderParam TraceParams
+instance NamedShaderParam (TraceParams Fields)
 
 defaultTraceParams :: TraceParams Values
 defaultTraceParams = TraceParams
