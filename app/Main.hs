@@ -128,7 +128,7 @@ scene rectBuf mouseClick mousePos cc = do
   -- asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.1), on mouseClick ]
   asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.15), on mouseClick ]
 
-  gptShader0 rectBuf defaultOpOptions (Params2 <$> pure 10 <*> pure 0.5)
+  gptShader0 rectBuf defaultOpOptions (Params2 <$> fmap (toRange 1 10) (ccValue 14) <*> fmap (toRange 0 2) (ccValue 15))
 
   -- sdfSyn rectBuf defaultOpOptions
   --   (trace traceParams)
