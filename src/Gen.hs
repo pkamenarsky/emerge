@@ -7,7 +7,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module GPT where
+module Gen where
 
 import Control.Monad.IO.Class
 import           Control.Monad.Trans.Class (lift)
