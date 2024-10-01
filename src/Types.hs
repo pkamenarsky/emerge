@@ -3,10 +3,12 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -19,6 +21,7 @@ import Control.Monad (when)
 import Data.Proxy
 import Data.StateVar
 import Data.Word (Word32)
+import Data.Text (Text)
 import qualified Data.Text as T
 
 import qualified Graphics.Rendering.OpenGL as GL
@@ -116,7 +119,7 @@ genericShaderParam opts program = do
 --------------------------------------------------------------------------------
 
 class GLSLType t where
-  glslType :: Proxy t -> T.Text
+  glslType :: Proxy t -> Text
 
 instance GLSLType GL.GLint where
   glslType _ = "int"
@@ -139,42 +142,46 @@ data Field
 data Value
 
 type family P f v where
-  P Field t = FieldDef t
+  P Field t = Text
   P Value t = t
 
 --------------------------------------------------------------------------------
 
-newtype FieldDef f = FieldDef { field :: T.Text }
+newtype FieldDef f = FieldDef { field :: Text }
 
-class GNamedShaderParam f g where                                                           
-  gNamedShaderParam :: ShaderParamDeriveOpts -> Proxy (g a) -> ([(T.Text, T.Text)], f a)
+class GNamedShaderParam g f | g -> g where                                                           
+  gNamedShaderParam :: Proxy (g a) -> ShaderParamDeriveOpts -> ([(Text, Text)], f a)
 
 instance GNamedShaderParam U1 U1 where gNamedShaderParam _ _ = ([], U1)
 
-instance (GNamedShaderParam a, GNamedShaderParam b) => GNamedShaderParam (ga :*: gb) (fa :*: fb) where
-  gNamedShaderParam opts _ = (ap <> bp, a :*: b)
+instance (GNamedShaderParam ga fa, GNamedShaderParam gb fb) => GNamedShaderParam (ga :*: gb) (fa :*: fb) where
+  gNamedShaderParam p opts = (ap <> bp, a :*: b)
     where
-      (ap, a) = gNamedShaderParam opts
-      (bp, b) = gNamedShaderParam opts
+      (ap, a) = gNamedShaderParam (Proxy :: Proxy (ga a)) opts
+      (bp, b) = gNamedShaderParam (Proxy :: Proxy (gb a)) opts
 
-instance GNamedShaderParam a => GNamedShaderParam (M1 C i a) where
-  gNamedShaderParam opts = M1 <$> gNamedShaderParam opts
+instance GNamedShaderParam g f => GNamedShaderParam (M1 C i g) (M1 C i f) where
+  gNamedShaderParam p opts = M1 <$> gNamedShaderParam (Proxy :: Proxy (g a)) opts
 
-instance GNamedShaderParam a => GNamedShaderParam (M1 D i a) where
-  gNamedShaderParam opts = M1 <$> gNamedShaderParam opts
+instance GNamedShaderParam g f => GNamedShaderParam (M1 D i g) (M1 D i f) where
+  gNamedShaderParam p opts = M1 <$> gNamedShaderParam (Proxy :: Proxy (g a))  opts
 
-instance (KnownSymbol name, GLSLType f) => GNamedShaderParam (M1 S ('MetaSel ('Just name) u s t) (K1 i (FieldDef f))) where
-  gNamedShaderParam opts = ([(glslType typeT, fieldName)], M1 (K1 (FieldDef fieldName)))
+instance (KnownSymbol name, GLSLType g) => GNamedShaderParam (M1 S ('MetaSel ('Just name) u s t) (K1 i g)) (M1 S ('MetaSel ('Just name) u s t) (K1 i Text)) where
+  gNamedShaderParam _ opts = ([(glslType typeT, fieldName)], M1 (K1 fieldName))
     where
       fieldName = T.pack $ spFieldLabelModifier opts $ symbolVal nameP
 
-      typeT :: Proxy f
+      typeT :: Proxy g
       typeT = Proxy
 
       nameP :: Proxy name
       nameP = Proxy
 
 class NamedShaderParam a where
-  namedShaderParam :: ShaderParamDeriveOpts -> ([(T.Text, T.Text)], a Field)
-  default namedShaderParam :: Generic (a Field) => GNamedShaderParam (Rep (a Field)) => ShaderParamDeriveOpts -> ([(T.Text, T.Text)], a Field)
-  namedShaderParam = fmap to . gNamedShaderParam
+  namedShaderParam :: ShaderParamDeriveOpts -> ([(Text, Text)], a Field)
+  default namedShaderParam
+    :: Generic (a Field)
+    => GNamedShaderParam (Rep (a Value)) (Rep (a Field))
+    => ShaderParamDeriveOpts
+    -> ([(Text, Text)], a Field)
+  namedShaderParam opts = fmap to $ gNamedShaderParam (Proxy :: Proxy (Rep (a Value) x)) opts

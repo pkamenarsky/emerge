@@ -76,7 +76,7 @@ box params = SDF $ \pos -> do
   W.tell $ pure $ SDFDef
     { sdfIncludes = ["assets/lygia/sdf/boxSDF.glsl"]
     , sdfUniforms = uniforms
-    , sdfDecls = [("float", out, [i|boxSDF(#{name pos}, #{field (bpDimensions np)})|])]
+    , sdfDecls = [("float", out, [i|boxSDF(#{name pos}, #{bpDimensions np})|])]
     , sdfSetParams = \program -> do
         set <- flip shaderParam program opts
         pure $ signalValue params >>= set
@@ -109,7 +109,7 @@ translate params sdf = SDF $ \pos -> do
   W.tell $ pure $ SDFDef
     { sdfIncludes = []
     , sdfUniforms = uniforms
-    , sdfDecls = [("vec3", newPos, [i|#{name pos} - #{field (tpTranslate np)}|])]
+    , sdfDecls = [("vec3", newPos, [i|#{name pos} - #{tpTranslate np}|])]
     , sdfSetParams = \program -> do
         set <- flip shaderParam program opts
         pure $ signalValue params >>= set . tParams
@@ -143,7 +143,7 @@ rotate params sdf = SDF $ \pos -> do
   W.tell $ pure $ SDFDef
     { sdfIncludes = ["assets/lygia/math/rotate3d.glsl"]
     , sdfUniforms = uniforms
-    , sdfDecls = [("vec3", newPos, [i|#{name pos} * rotate3d(#{field (rpAxis np)}, #{field (rpRadians np)})|])]
+    , sdfDecls = [("vec3", newPos, [i|#{name pos} * rotate3d(#{rpAxis np}, #{rpRadians np})|])]
     , sdfSetParams = \program -> do
         set <- flip shaderParam program opts
         pure $ signalValue params >>= set
@@ -220,7 +220,7 @@ void main () {
   float tMax = 5.;
 
   for (int i = 0; i < 64; ++i) {
-      if (i >= #{field (tpMaxIterations np)}) break;
+      if (i >= #{tpMaxIterations np}) break;
 
       vec3 currentPos = camPos + (t * ray);
       float h = sdf(currentPos);
@@ -236,10 +236,10 @@ void main () {
     vec3 normal = getNormal(currentPos);
     // float diff = dot(vec3(1.0), normal);
 
-    float fresnel = pow(#{field (tpFresnelBase np)} + dot(ray, normal), #{field (tpFresnelExp np)});
+    float fresnel = pow(#{tpFresnelBase np} + dot(ray, normal), #{tpFresnelExp np});
 
     // color = vec3(dot(ray, normal));
-    color = mix(color, vec3(#{field (tpMixFactor np)}), fresnel);
+    color = mix(color, vec3(#{tpMixFactor np}), fresnel);
   }
 
   gl_FragColor = vec4(color, 1.0);
