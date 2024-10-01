@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -31,16 +32,16 @@ data DefaultParams m = DefaultParams
   { u_resolution :: P m (GL.Vector2 Float)
   } deriving Generic
 
-instance ShaderParam (DefaultParams Values)
-instance NamedShaderParam (DefaultParams Fields)
+instance ShaderParams (DefaultParams Values)
+instance NamedShaderParams (DefaultParams Fields)
 
-genShader :: ShaderParam (params Values) => NamedShaderParam (params Fields) => RectBuffer -> OpOptions -> Text -> IO (Op (params Values))
+genShader :: forall params. ShaderParams (params Values) => NamedShaderParams (params Fields) => RectBuffer -> OpOptions -> ([(Text, Text)] -> DefaultParams Fields -> params Fields -> Text) -> IO (Op (params Values))
 genShader rectBuf opts fragT = do
   (tex, bindFBO, destroyFBO) <- createFramebuffer opts
-  (attribs, bindShader, destroyShader) <- createShader Nothing fragT
+  (attribs, bindShader, destroyShader) <- createShader Nothing (fragT (defUniforms <> uniforms) defnp np)
 
-  setDefaultParams <- shaderParam defaultShaderParamDeriveOpts (saProgram attribs)
-  setParams <- shaderParam defaultShaderParamDeriveOpts (saProgram attribs)
+  setDefaultParams <- shaderParams defaultShaderParamDeriveOpts (saProgram attribs)
+  setParams <- shaderParams defaultShaderParamDeriveOpts (saProgram attribs)
 
   (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
 
@@ -57,8 +58,11 @@ genShader rectBuf opts fragT = do
         destroyShader
         destroyDrawRect
     }
+  where
+    (defUniforms, defnp) = namedShaderParams @(DefaultParams Fields) defaultShaderParamDeriveOpts
+    (uniforms, np) = namedShaderParams @(params Fields) defaultShaderParamDeriveOpts
 
-genShaderSyn :: MonadIO m => RectBuffer -> OpOptions -> Text -> Signal (DefaultParams Values) -> Syn [Out] m a
+genShaderSyn :: MonadIO m => ShaderParams (params Values) => NamedShaderParams (params Fields) => RectBuffer -> OpOptions -> ([(Text, Text)] -> DefaultParams Fields -> params Fields -> Text) -> Signal (params Values) -> Syn [Out] m a
 genShaderSyn rectBuf opts fragT params = do
   Op tex render destroy <- unsafeNonBlockingIO $ genShader rectBuf opts fragT
 

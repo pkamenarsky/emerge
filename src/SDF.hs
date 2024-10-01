@@ -60,8 +60,8 @@ data BoxParams m = BoxParams
   { bpDimensions :: P m (GL.Vector3 Float)
   } deriving Generic
 
-instance ShaderParam (BoxParams Values)
-instance NamedShaderParam (BoxParams Fields)
+instance ShaderParams (BoxParams Values)
+instance NamedShaderParams (BoxParams Fields)
 
 box :: Signal (BoxParams Values) -> SDF
 box params = SDF $ \pos -> do
@@ -71,14 +71,14 @@ box params = SDF $ \pos -> do
   let opts = defaultShaderParamDeriveOpts
         { spFieldLabelModifier = (T.unpack prefix <>)
         }
-      (uniforms, np) = namedShaderParam @(BoxParams Fields) opts
+      (uniforms, np) = namedShaderParams @(BoxParams Fields) opts
 
   W.tell $ pure $ SDFDef
     { sdfIncludes = ["assets/lygia/sdf/boxSDF.glsl"]
     , sdfUniforms = uniforms
     , sdfDecls = [("float", out, [i|boxSDF(#{name pos}, #{bpDimensions np})|])]
     , sdfSetParams = \program -> do
-        set <- flip shaderParam program opts
+        set <- flip shaderParams program opts
         pure $ signalValue params >>= set
     }
 
@@ -90,8 +90,8 @@ data TranslateParams m = TranslateParams
   { tpTranslate :: P m (GL.Vector3 Float)
   } deriving Generic
 
-instance ShaderParam (RotateParams Values)
-instance NamedShaderParam (RotateParams Fields)
+instance ShaderParams (RotateParams Values)
+instance NamedShaderParams (RotateParams Fields)
 
 translate :: Signal (GL.Vector3 Float) -> SDF -> SDF
 translate params sdf = SDF $ \pos -> do
@@ -101,14 +101,14 @@ translate params sdf = SDF $ \pos -> do
   let opts = defaultShaderParamDeriveOpts
         { spFieldLabelModifier = (T.unpack prefix <>)
         }
-      (uniforms, np) = namedShaderParam @(TranslateParams Fields) opts
+      (uniforms, np) = namedShaderParams @(TranslateParams Fields) opts
 
   W.tell $ pure $ SDFDef
     { sdfIncludes = []
     , sdfUniforms = uniforms
     , sdfDecls = [("vec3", newPos, [i|#{name pos} - #{tpTranslate np}|])]
     , sdfSetParams = \program -> do
-        set <- flip shaderParam program opts
+        set <- flip shaderParams program opts
         pure $ signalValue params >>= set . TranslateParams @Values
     }
 
@@ -124,8 +124,8 @@ data RotateParams m = RotateParams
   , rpRadians :: P m Float
   } deriving Generic
 
-instance ShaderParam (TranslateParams Values)
-instance NamedShaderParam (TranslateParams Fields)
+instance ShaderParams (TranslateParams Values)
+instance NamedShaderParams (TranslateParams Fields)
 
 rotate :: Signal (RotateParams Values) -> SDF -> SDF
 rotate params sdf = SDF $ \pos -> do
@@ -135,14 +135,14 @@ rotate params sdf = SDF $ \pos -> do
   let opts = defaultShaderParamDeriveOpts
         { spFieldLabelModifier = (T.unpack prefix <>)
         }
-      (uniforms, np) = namedShaderParam @(RotateParams Fields) opts
+      (uniforms, np) = namedShaderParams @(RotateParams Fields) opts
 
   W.tell $ pure $ SDFDef
     { sdfIncludes = ["assets/lygia/math/rotate3d.glsl"]
     , sdfUniforms = uniforms
     , sdfDecls = [("vec3", newPos, [i|#{name pos} * rotate3d(#{rpAxis np}, #{rpRadians np})|])]
     , sdfSetParams = \program -> do
-        set <- flip shaderParam program opts
+        set <- flip shaderParams program opts
         pure $ signalValue params >>= set
     }
 
@@ -177,8 +177,8 @@ data TraceParams m = TraceParams
   , tpMixFactor :: P m Float
   } deriving Generic
 
-instance ShaderParam (TraceParams Values)
-instance NamedShaderParam (TraceParams Fields)
+instance ShaderParams (TraceParams Values)
+instance NamedShaderParams (TraceParams Fields)
 
 defaultTraceParams :: TraceParams Values
 defaultTraceParams = TraceParams
@@ -242,14 +242,14 @@ void main () {
   gl_FragColor = vec4(color, 1.0);
 } |]
   , sdfeSetParams = \program -> do
-      set <- flip shaderParam program defaultShaderParamDeriveOpts
+      set <- flip shaderParams program defaultShaderParamDeriveOpts
       pure $ signalValue params >>= set
   }
   where
     aspectRatio :: Float
     aspectRatio = fromIntegral (opWidth opts) / fromIntegral (opHeight opts)
 
-    (uniforms, np) = namedShaderParam defaultShaderParamDeriveOpts :: ([(Text, Text)], TraceParams Fields)
+    (uniforms, np) = namedShaderParams defaultShaderParamDeriveOpts :: ([(Text, Text)], TraceParams Fields)
 
 --------------------------------------------------------------------------------
 

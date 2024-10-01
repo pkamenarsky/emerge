@@ -55,13 +55,13 @@ data BlitParams = BlitParams
   { blitSource :: Texture 0
   } deriving Generic
 
-instance ShaderParam BlitParams where
+instance ShaderParams BlitParams where
 
 blit :: RectBuffer -> GL.Size -> IO (GL.TextureObject -> IO (), IO ())
 blit rectBuf viewport@(GL.Size width height) = do
   (attribs, bindShader, destroyShader) <- createShader Nothing fragT
   (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
-  setParams <- shaderParam defaultShaderParamDeriveOpts (saProgram attribs)
+  setParams <- shaderParams defaultShaderParamDeriveOpts (saProgram attribs)
 
   pure
     ( \tex -> do
@@ -94,13 +94,13 @@ data FillParams = FillParams
   { foColor :: GL.Color4 Float
   } deriving Generic
 
-instance ShaderParam FillParams where
+instance ShaderParams FillParams where
 
 fill :: RectBuffer -> OpOptions -> IO (Op FillParams)
 fill rectBuf opts = do
   (tex, bindFBO, destroyFBO) <- createFramebuffer opts
   (attribs, bindShader, destroyShader) <- createShader Nothing fragT
-  setParams <- shaderParam defaultShaderParamDeriveOpts (saProgram attribs)
+  setParams <- shaderParams defaultShaderParamDeriveOpts (saProgram attribs)
 
   (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
 
@@ -141,13 +141,13 @@ data CircleParams = CircleParams
   , cpRadius :: Float
   } deriving Generic
 
-instance ShaderParam CircleParams where
+instance ShaderParams CircleParams where
 
 circle :: RectBuffer -> OpOptions -> IO (Op CircleParams)
 circle rectBuf opts = do
   (tex, bindFBO, destroyFBO) <- createFramebuffer opts
   (attribs, bindShader, destroyShader) <- createShader Nothing fragT
-  setParams <- shaderParam defaultShaderParamDeriveOpts (saProgram attribs)
+  setParams <- shaderParams defaultShaderParamDeriveOpts (saProgram attribs)
 
   (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
 
@@ -209,13 +209,13 @@ data BlendParams = BlendParams
   , bpTex2 :: Texture 1
   } deriving Generic
 
-instance ShaderParam BlendParams where
+instance ShaderParams BlendParams where
 
 blend :: RectBuffer -> BlendOptions -> IO (Op BlendParams)
 blend rectBuf opts = do
   (tex, bindFBO, destroyFBO) <- createFramebuffer (bpOpOptions opts)
   (attribs, bindShader, destroyShader) <- createShader Nothing fragT
-  setParams <- shaderParam defaultShaderParamDeriveOpts (saProgram attribs)
+  setParams <- shaderParams defaultShaderParamDeriveOpts (saProgram attribs)
 
   (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
 

@@ -1,3 +1,6 @@
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE QuasiQuotes #-}
+
 module Main (main) where
 
 import Control.Exception
@@ -8,6 +11,7 @@ import Data.Foldable
 import Data.IORef
 import Data.Maybe (fromMaybe)
 import Data.StateVar
+import Data.String.Interpolate (i)
 import Data.Void
 import qualified Data.Map as M
 import qualified Data.Vector.Storable as V
@@ -16,6 +20,7 @@ import qualified Graphics.Rendering.OpenGL as GL
 import qualified Graphics.UI.GLFW as GLFW
 
 import Common
+import Gen
 import Types
 import Render
 import SDF
@@ -30,15 +35,104 @@ import qualified Sound.RtMidi as RT
 
 import Debug.Trace (traceIO)
 
+--------------------------------------------------------------------------------
+
+type Shader0Params = Params2
+  Float -- 10.0
+  Float -- 0.5
+
+gptShader0 :: MonadIO m => RectBuffer -> OpOptions -> Signal (Shader0Params Values) -> Syn [Out] m a
+gptShader0 rectBuf opts = genShaderSyn rectBuf opts fragT
+  where
+    fragT uniforms defParams (Params2 p0 p1) = [i|
+\#ifdef GL_ES
+precision mediump float;
+\#endif
+
+#{formatUniforms uniforms}
+
+const int MAX_STEPS = 100;
+const float MIN_DIST = 0.001;
+const float MAX_DIST = 100.0;
+
+// Gyroid SDF function
+float gyroid(vec3 p) {
+    return sin(p.x) * cos(p.y) + sin(p.y) * cos(p.z) + sin(p.z) * cos(p.x);
+}
+
+// Function to get distance to the object
+float map(vec3 p) {
+    return gyroid(p * #{p0}) * #{p1} + length(p) - 1.0;  // Combine with sphere for variation
+}
+
+// Raymarching function
+float raymarch(vec3 ro, vec3 rd) {
+    float dO = 0.0;
+    for (int i = 0; i < MAX_STEPS; i++) {
+        vec3 p = ro + rd * dO;
+        float dS = map(p);
+        if (dS < MIN_DIST) break;
+        dO += dS;
+        if (dO > MAX_DIST) break;
+    }
+    return dO;
+}
+
+// Normal calculation
+vec3 getNormal(vec3 p) {
+    vec2 e = vec2(0.001, 0.0);
+    vec3 n = vec3(
+        map(p + e.xyy) - map(p - e.xyy),
+        map(p + e.yxy) - map(p - e.yxy),
+        map(p + e.yyx) - map(p - e.yyx)
+    );
+    return normalize(n);
+}
+
+// Lighting calculation
+float getLight(vec3 p) {
+    vec3 lightPos = vec3(3.0, 5.0, 5.0);
+    vec3 L = normalize(lightPos - p);
+    vec3 N = getNormal(p);
+    float diff = clamp(dot(N, L), 0.0, 1.0);
+    return diff;
+}
+
+void main() {
+    vec2 uv = (gl_FragCoord.xy - 0.5 * #{u_resolution defParams}.xy) / #{u_resolution defParams}.y;
+
+    vec3 ro = vec3(0.0, 0.0, 5.0);
+    vec3 rd = normalize(vec3(uv, -1.5));
+
+    // Raymarch the scene
+    float d = raymarch(ro, rd);
+    
+    // Background color
+    vec3 col = vec3(0.0);
+    
+    // If we hit the object
+    if (d < MAX_DIST) {
+        vec3 p = ro + rd * d;
+        float light = getLight(p);
+        col = mix(vec3(0.2, 0.3, 0.7), vec3(0.9, 0.9, 0.9), light);
+    }
+
+   gl_FragColor = vec4(col, 1.0);
+} |]
+
+--------------------------------------------------------------------------------
+
 scene :: MonadIO m => RectBuffer -> Event () -> Signal (Double, Double) -> Signal (Word8 -> Word8) -> Syn [Out] m a
 scene rectBuf mouseClick mousePos cc = do
   -- asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.05), on mouseClick ]
   -- asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.1), on mouseClick ]
   asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.15), on mouseClick ]
 
-  sdfSyn rectBuf defaultOpOptions
-    (trace traceParams)
-    (rotate rotateY $ rotate rotateX $ box (pure $ BoxParams (GL.Vector3 0.5 0.5 0.3)))
+  gptShader0 rectBuf defaultOpOptions (Params2 <$> pure 10 <*> pure 0.5)
+
+  -- sdfSyn rectBuf defaultOpOptions
+  --   (trace traceParams)
+  --   (rotate rotateY $ rotate rotateX $ box (pure $ BoxParams (GL.Vector3 0.5 0.5 0.3)))
   -- blendSyn rectBuf defaultBlendOptions (pure $ BlendParamsSyn 0.5)
   --   (fillSyn rectBuf defaultOpOptions fillParams)
   --   (circleSyn rectBuf defaultOpOptions (circleParams 0.15))

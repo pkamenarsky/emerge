@@ -204,6 +204,8 @@ createShader vertT fragT = do
   GL.shaderSourceBS fragShader $= T.encodeUtf8 fragT'
   GL.compileShader fragShader
 
+  T.putStrLn fragT'
+
   program <- GL.createProgram
   GL.attachShader program vertShader
   GL.attachShader program fragShader
@@ -236,3 +238,9 @@ void main() {
       GL.deleteObjectName vertShader
       GL.deleteObjectName fragShader
       GL.deleteObjectName program
+
+formatUniforms :: [(Text, Text)] -> Text
+formatUniforms uniforms = T.intercalate "\n"
+  [ [i|uniform #{ut} #{un};|]
+  | (ut, un) <- uniforms
+  ]
