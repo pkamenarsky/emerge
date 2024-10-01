@@ -3,8 +3,11 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
 {-# LANGUAGE DeriveGeneric #-}
@@ -15,6 +18,7 @@ import Control.Monad (when)
 
 import Data.Proxy
 import Data.StateVar
+import Data.Word (Word32)
 import qualified Data.Text as T
 
 import qualified Graphics.Rendering.OpenGL as GL
@@ -29,9 +33,7 @@ newtype Frame = Frame Int
 
 --------------------------------------------------------------------------------
 
-newtype Tex1 = Tex1 GL.TextureObject
-newtype Tex2 = Tex2 GL.TextureObject
-newtype Tex3 = Tex3 GL.TextureObject
+newtype Texture (n :: Nat) = Texture GL.TextureObject
 
 data ShaderParamDeriveOpts = ShaderParamDeriveOpts
   { spFieldLabelModifier :: String -> String
@@ -76,7 +78,7 @@ instance {-# OVERLAPPABLE #-} (KnownSymbol name, GL.Uniform a) => GShaderParam (
       nameP :: Proxy name
       nameP = Proxy
 
-instance {-# OVERLAPS #-} KnownSymbol name => GShaderParam (M1 S ('MetaSel ('Just name) u s t) (K1 i Tex1)) where
+instance {-# OVERLAPPING #-} (KnownSymbol name, KnownNat n) => GShaderParam (M1 S ('MetaSel ('Just name) u s t) (K1 i (Texture n))) where
   gShaderParam opts program = do
     let uName = spFieldLabelModifier opts $ symbolVal nameP
 
@@ -84,45 +86,17 @@ instance {-# OVERLAPS #-} KnownSymbol name => GShaderParam (M1 S ('MetaSel ('Jus
     
     when (loc < GL.UniformLocation 0) $ error $ "gShaderParam: uniform " <> uName <> " not found"
 
-    pure $ \(M1 (K1 (Tex1 tex))) -> do
-      GL.activeTexture $= GL.TextureUnit 0
+    pure $ \(M1 (K1 (Texture tex))) -> do
+      GL.activeTexture $= GL.TextureUnit (fromInteger $ natVal unit)
       GL.textureBinding GL.Texture2D $= Just tex
-      GL.uniform loc $= GL.TextureUnit 0
+      GL.uniform loc $= GL.TextureUnit (fromInteger $ natVal unit)
     where
       nameP :: Proxy name
       nameP = Proxy
 
-instance {-# OVERLAPS #-} KnownSymbol name => GShaderParam (M1 S ('MetaSel ('Just name) u s t) (K1 i Tex2)) where
-  gShaderParam opts program = do
-    let uName = spFieldLabelModifier opts $ symbolVal nameP
+      unit :: Proxy n
+      unit = Proxy
 
-    loc <- GL.uniformLocation program uName
-    
-    when (loc < GL.UniformLocation 0) $ error $ "gShaderParam: uniform " <> uName <> " not found"
-
-    pure $ \(M1 (K1 (Tex2 tex))) -> do
-      GL.activeTexture $= GL.TextureUnit 1
-      GL.textureBinding GL.Texture2D $= Just tex
-      GL.uniform loc $= GL.TextureUnit 1
-    where
-      nameP :: Proxy name
-      nameP = Proxy
-
-instance {-# OVERLAPPING #-} KnownSymbol name => GShaderParam (M1 S ('MetaSel ('Just name) u s t) (K1 i Tex3)) where
-  gShaderParam opts program = do
-    let uName = spFieldLabelModifier opts $ symbolVal nameP
-
-    loc <- GL.uniformLocation program uName
-    
-    when (loc < GL.UniformLocation 0) $ error $ "gShaderParam: uniform " <> uName <> " not found"
-
-    pure $ \(M1 (K1 (Tex3 tex))) -> do
-      GL.activeTexture $= GL.TextureUnit 2
-      GL.textureBinding GL.Texture2D $= Just tex
-      GL.uniform loc $= GL.TextureUnit 2
-    where
-      nameP :: Proxy name
-      nameP = Proxy
 
 class ShaderParam a where
   shaderParam :: ShaderParamDeriveOpts -> GL.Program -> IO (a -> IO ())
@@ -161,15 +135,24 @@ instance GLSLType (GL.Vector3 Float) where
 
 --------------------------------------------------------------------------------
 
+data Field
+data Value
+
+type family P f v where
+  P Field t = FieldDef t
+  P Value t = t
+
+--------------------------------------------------------------------------------
+
 newtype FieldDef f = FieldDef { field :: T.Text }
 
-class GNamedShaderParam f where                                                           
-  gNamedShaderParam :: ShaderParamDeriveOpts -> ([(T.Text, T.Text)], f a)
+class GNamedShaderParam f g where                                                           
+  gNamedShaderParam :: ShaderParamDeriveOpts -> Proxy (g a) -> ([(T.Text, T.Text)], f a)
 
-instance GNamedShaderParam U1 where gNamedShaderParam _ = ([], U1)
+instance GNamedShaderParam U1 U1 where gNamedShaderParam _ _ = ([], U1)
 
-instance (GNamedShaderParam a, GNamedShaderParam b) => GNamedShaderParam (a :*: b) where
-  gNamedShaderParam opts = (ap <> bp, a :*: b)
+instance (GNamedShaderParam a, GNamedShaderParam b) => GNamedShaderParam (ga :*: gb) (fa :*: fb) where
+  gNamedShaderParam opts _ = (ap <> bp, a :*: b)
     where
       (ap, a) = gNamedShaderParam opts
       (bp, b) = gNamedShaderParam opts
@@ -192,6 +175,6 @@ instance (KnownSymbol name, GLSLType f) => GNamedShaderParam (M1 S ('MetaSel ('J
       nameP = Proxy
 
 class NamedShaderParam a where
-  namedShaderParam :: ShaderParamDeriveOpts -> ([(T.Text, T.Text)], a)
-  default namedShaderParam :: Generic a => GNamedShaderParam (Rep a) => ShaderParamDeriveOpts -> ([(T.Text, T.Text)], a)
+  namedShaderParam :: ShaderParamDeriveOpts -> ([(T.Text, T.Text)], a Field)
+  default namedShaderParam :: Generic (a Field) => GNamedShaderParam (Rep (a Field)) => ShaderParamDeriveOpts -> ([(T.Text, T.Text)], a Field)
   namedShaderParam = fmap to . gNamedShaderParam

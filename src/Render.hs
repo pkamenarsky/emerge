@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -203,7 +204,7 @@ createShader vertT fragT uv = do
 --------------------------------------------------------------------------------
 
 data BlitParams = BlitParams
-  { blitSource :: Tex1
+  { blitSource :: Texture 0
   } deriving Generic
 
 instance ShaderParam BlitParams where
@@ -220,7 +221,7 @@ blit rectBuf viewport = do
 
         GL.bindFramebuffer GL.Framebuffer $= GL.defaultFramebufferObject
 
-        bindShader $ BlitParams (Tex1 tex)
+        bindShader $ BlitParams (Texture tex)
         drawRect
 
     , do
@@ -379,8 +380,8 @@ defaultBlendOptions = BlendOptions
 
 data BlendParams = BlendParams
   { bpFactor :: Float
-  , bpTex1 :: Tex1
-  , bpTex2 :: Tex2
+  , bpTex1 :: Texture 0
+  , bpTex2 :: Texture 1
   } deriving Generic
 
 instance ShaderParam BlendParams where
@@ -448,8 +449,8 @@ blendSyn rectBuf opts params a b = do
             params' <- signalValue params
             render $ BlendParams
               { bpFactor = bpsFactor params'
-              , bpTex1 = Tex1 $ outTex aOut
-              , bpTex2 = Tex2 $ outTex bOut
+              , bpTex1 = Texture $ outTex aOut
+              , bpTex2 = Texture $ outTex bOut
               }
         }
       out l = pure $ Out

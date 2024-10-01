@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module SDF where
@@ -55,21 +56,12 @@ name (Name n) = "n_" <> T.pack (show n)
 
 --------------------------------------------------------------------------------
 
-data Field
-data Value
-
-type family P f v where
-  P Field f = FieldDef f
-  P Value v = v
-
---------------------------------------------------------------------------------
-
 data BoxParams m = BoxParams
   { bpDimensions :: P m (GL.Vector3 Float)
   } deriving Generic
 
 instance ShaderParam (BoxParams Value)
-instance NamedShaderParam (BoxParams Field)
+instance NamedShaderParam BoxParams
 
 box :: Signal (BoxParams Value) -> SDF
 box params = SDF $ \pos -> do
@@ -79,7 +71,7 @@ box params = SDF $ \pos -> do
   let opts = defaultShaderParamDeriveOpts
         { spFieldLabelModifier = (T.unpack prefix <>)
         }
-      (uniforms, np) = namedShaderParam opts :: ([(Text, Text)], BoxParams Field)
+      (uniforms, np) = namedShaderParam @BoxParams opts
 
   W.tell $ pure $ SDFDef
     { sdfIncludes = ["assets/lygia/sdf/boxSDF.glsl"]
@@ -99,7 +91,7 @@ data TranslateParams m = TranslateParams
   } deriving Generic
 
 instance ShaderParam (RotateParams Value)
-instance NamedShaderParam (RotateParams Field)
+instance NamedShaderParam RotateParams
 
 translate :: Signal (GL.Vector3 Float) -> SDF -> SDF
 translate params sdf = SDF $ \pos -> do
@@ -109,7 +101,7 @@ translate params sdf = SDF $ \pos -> do
   let opts = defaultShaderParamDeriveOpts
         { spFieldLabelModifier = (T.unpack prefix <>)
         }
-      (uniforms, np) = namedShaderParam opts :: ([(Text, Text)], TranslateParams Field)
+      (uniforms, np) = namedShaderParam @TranslateParams opts
 
       tParams :: GL.Vector3 Float -> TranslateParams Value
       tParams = TranslateParams
@@ -136,7 +128,7 @@ data RotateParams m = RotateParams
   } deriving Generic
 
 instance ShaderParam (TranslateParams Value)
-instance NamedShaderParam (TranslateParams Field)
+instance NamedShaderParam TranslateParams
 
 rotate :: Signal (RotateParams Value) -> SDF -> SDF
 rotate params sdf = SDF $ \pos -> do
@@ -146,7 +138,7 @@ rotate params sdf = SDF $ \pos -> do
   let opts = defaultShaderParamDeriveOpts
         { spFieldLabelModifier = (T.unpack prefix <>)
         }
-      (uniforms, np) = namedShaderParam opts :: ([(Text, Text)], RotateParams Field)
+      (uniforms, np) = namedShaderParam @RotateParams opts
 
   W.tell $ pure $ SDFDef
     { sdfIncludes = ["assets/lygia/math/rotate3d.glsl"]
@@ -189,7 +181,7 @@ data TraceParams m = TraceParams
   } deriving Generic
 
 instance ShaderParam (TraceParams Value)
-instance NamedShaderParam (TraceParams Field)
+instance NamedShaderParam TraceParams
 
 defaultTraceParams :: TraceParams Value
 defaultTraceParams = TraceParams
