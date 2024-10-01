@@ -60,10 +60,10 @@ data BoxParams m = BoxParams
   { bpDimensions :: P m (GL.Vector3 Float)
   } deriving Generic
 
-instance ShaderParam (BoxParams Value)
+instance ShaderParam (BoxParams Values)
 instance NamedShaderParam BoxParams
 
-box :: Signal (BoxParams Value) -> SDF
+box :: Signal (BoxParams Values) -> SDF
 box params = SDF $ \pos -> do
   prefix <- name <$> genName
   out <- genName
@@ -90,7 +90,7 @@ data TranslateParams m = TranslateParams
   { tpTranslate :: P m (GL.Vector3 Float)
   } deriving Generic
 
-instance ShaderParam (RotateParams Value)
+instance ShaderParam (RotateParams Values)
 instance NamedShaderParam RotateParams
 
 translate :: Signal (GL.Vector3 Float) -> SDF -> SDF
@@ -103,16 +103,13 @@ translate params sdf = SDF $ \pos -> do
         }
       (uniforms, np) = namedShaderParam @TranslateParams opts
 
-      tParams :: GL.Vector3 Float -> TranslateParams Value
-      tParams = TranslateParams
-
   W.tell $ pure $ SDFDef
     { sdfIncludes = []
     , sdfUniforms = uniforms
     , sdfDecls = [("vec3", newPos, [i|#{name pos} - #{tpTranslate np}|])]
     , sdfSetParams = \program -> do
         set <- flip shaderParam program opts
-        pure $ signalValue params >>= set . tParams
+        pure $ signalValue params >>= set . TranslateParams @Values
     }
 
   out <- runSDF sdf newPos
@@ -127,10 +124,10 @@ data RotateParams m = RotateParams
   , rpRadians :: P m Float
   } deriving Generic
 
-instance ShaderParam (TranslateParams Value)
+instance ShaderParam (TranslateParams Values)
 instance NamedShaderParam TranslateParams
 
-rotate :: Signal (RotateParams Value) -> SDF -> SDF
+rotate :: Signal (RotateParams Values) -> SDF -> SDF
 rotate params sdf = SDF $ \pos -> do
   prefix <- name <$> genName
   newPos <- genName
@@ -180,10 +177,10 @@ data TraceParams m = TraceParams
   , tpMixFactor :: P m Float
   } deriving Generic
 
-instance ShaderParam (TraceParams Value)
+instance ShaderParam (TraceParams Values)
 instance NamedShaderParam TraceParams
 
-defaultTraceParams :: TraceParams Value
+defaultTraceParams :: TraceParams Values
 defaultTraceParams = TraceParams
   { tpMaxIterations = 64
   , tpFresnelBase = 1
@@ -191,7 +188,7 @@ defaultTraceParams = TraceParams
   , tpMixFactor = 0.5
   }
 
-trace :: Signal (TraceParams Value) -> OpOptions -> SDFEval
+trace :: Signal (TraceParams Values) -> OpOptions -> SDFEval
 trace params opts = SDFEval
   { sdfeIncludes = []
   , sdfeUniforms = uniforms
@@ -252,7 +249,7 @@ void main () {
     aspectRatio :: Float
     aspectRatio = fromIntegral (opWidth opts) / fromIntegral (opHeight opts)
 
-    (uniforms, np) = namedShaderParam defaultShaderParamDeriveOpts :: ([(Text, Text)], TraceParams Field)
+    (uniforms, np) = namedShaderParam defaultShaderParamDeriveOpts :: ([(Text, Text)], TraceParams Fields)
 
 --------------------------------------------------------------------------------
 

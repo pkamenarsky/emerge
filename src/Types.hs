@@ -138,12 +138,12 @@ instance GLSLType (GL.Vector3 Float) where
 
 --------------------------------------------------------------------------------
 
-data Field
-data Value
+data Fields
+data Values
 
 type family P f v where
-  P Field t = Text
-  P Value t = t
+  P Fields t = Text
+  P Values t = t
 
 --------------------------------------------------------------------------------
 
@@ -178,10 +178,10 @@ instance (KnownSymbol name, GLSLType g) => GNamedShaderParam (M1 S ('MetaSel ('J
       nameP = Proxy
 
 class NamedShaderParam a where
-  namedShaderParam :: ShaderParamDeriveOpts -> ([(Text, Text)], a Field)
+  namedShaderParam :: ShaderParamDeriveOpts -> ([(Text, Text)], a Fields)
   default namedShaderParam
-    :: Generic (a Field)
-    => GNamedShaderParam (Rep (a Value)) (Rep (a Field))
+    :: Generic (a Fields)
+    => GNamedShaderParam (Rep (a Values)) (Rep (a Fields))
     => ShaderParamDeriveOpts
-    -> ([(Text, Text)], a Field)
-  namedShaderParam opts = fmap to $ gNamedShaderParam (Proxy :: Proxy (Rep (a Value) x)) opts
+    -> ([(Text, Text)], a Fields)
+  namedShaderParam opts = fmap to $ gNamedShaderParam (Proxy :: Proxy (Rep (a Values) x)) opts
