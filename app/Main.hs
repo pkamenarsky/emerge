@@ -120,6 +120,69 @@ void main() {
    gl_FragColor = vec4(col, 1.0);
 } |]
 
+type Shader1Params = Params4
+  GL.GLint -- 16.0
+  Float -- 0.05
+  Float -- 10.0
+  Float -- 0.3
+
+gptShader1 :: MonadIO m => RectBuffer -> OpOptions -> Signal (Shader1Params Values) -> Syn [Out] m a
+gptShader1 rectBuf opts = genShaderSyn rectBuf opts fragT
+  where
+    fragT uniforms _ (Params4 p0 p1 p2 p3) = [i|
+\#ifdef GL_ES
+precision mediump float;
+\#endif
+
+#{formatUniforms uniforms}
+
+// Function to create circular floral pattern
+float circle(vec2 uv, vec2 pos, float radius) {
+    return smoothstep(radius, radius + 0.01, length(uv - pos));
+}
+
+// Function to create radial petal-like pattern
+float petalPattern(vec2 uv, vec2 pos, float radius, int petalCount) {
+    float angle = atan(uv.y - pos.y, uv.x - pos.x);
+    float petal = sin(float(petalCount) * angle) * 0.5 + 0.5;
+    return circle(uv, pos, radius) * petal;
+}
+
+// Wave pattern function
+float wavePattern(vec2 uv, float frequency, float amplitude) {
+    float u_time = 1.0;
+    return sin(uv.y * frequency + u_time) * amplitude;
+}
+
+void main() {
+    vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+    uv -= 0.5;  // Centering UV coordinates
+    uv.x *= u_resolution.x / u_resolution.y;
+
+    // Create background color
+    vec3 color = vec3(0.1, 0.1, 0.1);
+
+    // Create the wave-like pattern
+    float wave = wavePattern(uv, #{p2}, #{p3});
+
+    // Create the floral pattern
+    float floral = 0.0;
+    int petalCount = #{p0};
+    float radius = #{p1};
+    vec2 gridPos = vec2(mod(uv.x * 5.0, 1.0), mod(uv.y * 5.0, 1.0));
+
+    for (float x = -1.0; x <= 1.0; x += 1.0) {
+        for (float y = -1.0; y <= 1.0; y += 1.0) {
+            floral += petalPattern(uv, vec2(x, y) + gridPos, radius, petalCount);
+        }
+    }
+
+    // Combine the wave and floral patterns
+    color += vec3(floral * wave);
+
+    gl_FragColor = vec4(color, 1.0);
+} |]
+
 --------------------------------------------------------------------------------
 
 scene :: MonadIO m => RectBuffer -> Event () -> Signal (Double, Double) -> Signal (Word8 -> Word8) -> Syn [Out] m a
@@ -128,7 +191,8 @@ scene rectBuf mouseClick mousePos cc = do
   -- asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.1), on mouseClick ]
   asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.15), on mouseClick ]
 
-  gptShader0 rectBuf defaultOpOptions (Params2 <$> fmap (toRange 1 10) (ccValue 14) <*> fmap (toRange 0 2) (ccValue 15))
+  -- gptShader0 rectBuf defaultOpOptions (Params2 <$> fmap (toRange 1 10) (ccValue 14) <*> fmap (toRange 0 2) (ccValue 15))
+  gptShader1 rectBuf defaultOpOptions (Params4 <$> ccValue 14 <*> fmap (toRange 0 1) (ccValue 15) <*> fmap (toRange 0 20) (ccValue 16) <*> fmap (toRange 0.1 5) (ccValue 17))
 
   -- sdfSyn rectBuf defaultOpOptions
   --   (trace traceParams)
