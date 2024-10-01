@@ -29,16 +29,17 @@ import Types
 
 data DefaultParams m = DefaultParams
   { u_resolution :: P m (GL.Vector2 Float)
-  , u_time :: P m Float
   } deriving Generic
 
 instance ShaderParam (DefaultParams Values)
 instance NamedShaderParam DefaultParams
 
-gptShader :: RectBuffer -> OpOptions -> Text -> IO (Op (DefaultParams Values))
-gptShader rectBuf opts fragT = do
+genShader :: ShaderParam (params Values) => NamedShaderParam params => RectBuffer -> OpOptions -> Text -> IO (Op (params Values))
+genShader rectBuf opts fragT = do
   (tex, bindFBO, destroyFBO) <- createFramebuffer opts
-  (attribs, bindShader, destroyShader) <- createShader vertT fragT True
+  (attribs, bindShader, destroyShader) <- createShader Nothing fragT
+
+  setDefaultParams <- shaderParam defaultShaderParamDeriveOpts (saProgram attribs)
   setParams <- shaderParam defaultShaderParamDeriveOpts (saProgram attribs)
 
   (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
@@ -48,6 +49,7 @@ gptShader rectBuf opts fragT = do
     , opRender = \params -> do
         bindFBO
         bindShader
+        setDefaultParams $ DefaultParams @Values $ GL.Vector2 (fi $ opWidth opts) (fi $ opHeight opts)
         setParams params
         drawRect
     , opDestroy = do
@@ -55,21 +57,10 @@ gptShader rectBuf opts fragT = do
         destroyShader
         destroyDrawRect
     }
-  where
-    vertT = [i|
-in vec3 a_pos;
-in vec2 a_uv;
 
-varying vec2 uv;
-
-void main() {
-  gl_Position = vec4(a_pos, 1.0);
-  uv = a_uv;
-} |]
-
-gptShaderSyn :: MonadIO m => RectBuffer -> OpOptions -> Text -> Signal (DefaultParams Values) -> Syn [Out] m a
-gptShaderSyn rectBuf opts fragT params = do
-  Op tex render destroy <- unsafeNonBlockingIO $ gptShader rectBuf opts fragT
+genShaderSyn :: MonadIO m => RectBuffer -> OpOptions -> Text -> Signal (DefaultParams Values) -> Syn [Out] m a
+genShaderSyn rectBuf opts fragT params = do
+  Op tex render destroy <- unsafeNonBlockingIO $ genShader rectBuf opts fragT
 
   finalize (liftIO destroy) $ view $ pure $ Out
     { outTex = tex
