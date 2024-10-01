@@ -58,7 +58,7 @@ genShader rectBuf opts fragT = do
         destroyDrawRect
     }
 
-genShaderSyn :: MonadIO m => RectBuffer -> OpOptions -> Text -> Signal (DefaultParams Values) -> Syn [Out] m a
+genShaderSyn :: ShaderParam (params Values) => NamedShaderParam params => MonadIO m => RectBuffer -> OpOptions -> Text -> Signal (params Values) -> Syn [Out] m a
 genShaderSyn rectBuf opts fragT params = do
   Op tex render destroy <- unsafeNonBlockingIO $ genShader rectBuf opts fragT
 

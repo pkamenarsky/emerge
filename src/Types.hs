@@ -1,3 +1,4 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveFunctor #-}
@@ -6,11 +7,13 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 {-# LANGUAGE DeriveGeneric #-}
 
@@ -28,6 +31,8 @@ import qualified Graphics.Rendering.OpenGL as GL
 
 import GHC.Int
 import GHC.Generics (Generic, Rep, V1, U1 (U1), (:*:) ((:*:)), C, D, K1 (K1), M1 (M1), S, Meta (MetaSel), from, to)
+import GHC.OverloadedLabels
+import GHC.Records
 import GHC.TypeLits
 
 --------------------------------------------------------------------------------
@@ -151,8 +156,6 @@ type family P f v where
 
 --------------------------------------------------------------------------------
 
-newtype FieldDef f = FieldDef { field :: Text }
-
 class GNamedShaderParam g f | g -> g where                                                           
   gNamedShaderParam :: Proxy (g a) -> ShaderParamDeriveOpts -> ([(Text, Text)], f a)
 
@@ -189,3 +192,79 @@ class NamedShaderParam a where
     => ShaderParamDeriveOpts
     -> ([(Text, Text)], a Fields)
   namedShaderParam opts = fmap to $ gNamedShaderParam (Proxy :: Proxy (Rep (a Values) x)) opts
+
+--------------------------------------------------------------------------------
+
+data (s :: Symbol) ::: t = Param Text t
+
+type family FromTuples (tuples :: *) :: [*] where
+  FromTuples (a ::: t) = '[a ::: t]
+  FromTuples (a ::: t, b ::: u) = '[a ::: t, b ::: u]
+  FromTuples (a ::: t, b ::: u, c ::: v) = '[a ::: t, b ::: u, c ::: v]
+  FromTuples (a ::: t, b ::: u, c ::: v, d ::: w) = '[a ::: t, b ::: u, c ::: v, d ::: w]
+  FromTuples (a ::: t, b ::: u, c ::: v, d ::: w, e ::: x) = '[a ::: t, b ::: u, c ::: v, d ::: w, e ::: x]
+  FromTuples (a ::: t, b ::: u, c ::: v, d ::: w, e ::: x, f ::: y) = '[a ::: t, b ::: u, c ::: v, d ::: w, e ::: x, f ::: y]
+  FromTuples (a ::: t, b ::: u, c ::: v, d ::: w, e ::: x, f ::: y, g ::: z) = '[a ::: t, b ::: u, c ::: v, d ::: w, e ::: x, f ::: y, g ::: z]
+
+type family ToTuples (params :: [*]) where
+  ToTuples '[a ::: t] = a ::: t
+  ToTuples '[a ::: t, b ::: u] = (a ::: t, b ::: u)
+  ToTuples '[a ::: t, b ::: u, c ::: v] = (a ::: t, b ::: u, c ::: v)
+  ToTuples '[a ::: t, b ::: u, c ::: v, d ::: w] = (a ::: t, b ::: u, c ::: v, d ::: w)
+  ToTuples '[a ::: t, b ::: u, c ::: v, d ::: w, e ::: x] = (a ::: t, b ::: u, c ::: v, d ::: w, e ::: x)
+  ToTuples '[a ::: t, b ::: u, c ::: v, d ::: w, e ::: x, f ::: y] = (a ::: t, b ::: u, c ::: v, d ::: w, e ::: x, f ::: y)
+  ToTuples '[a ::: t, b ::: u, c ::: v, d ::: w, e ::: x, f ::: y, g ::: z] = (a ::: t, b ::: u, c ::: v, d ::: w, e ::: x, f ::: y, g ::: z)
+
+type family Lookup (s :: Symbol) (params :: [*]) :: Maybe * where
+  Lookup s '[] = TypeError ('Text "Lookup")
+  Lookup s (s ::: t : ps) = 'Just t
+  Lookup s (p:ps) = Lookup s ps
+
+data Record (params :: [*]) = Record (ToTuples params)
+
+instance Lookup s fields ~ Just t => HasField (Record fields) (Proxy s) t
+
+record :: list ~ FromTuples tuples => ToTuples list ~ tuples => tuples -> Record list
+record tuples = Record tuples
+
+param :: KnownSymbol s => HasField (Record fields) (Proxy s) t => Record fields -> s ::: t
+param = undefined
+
+field :: forall s t. KnownSymbol s => t -> s ::: t
+field t = Param (T.pack $ symbolVal $ Proxy @s) t
+
+shader :: Record params -> (Record params -> IO ()) -> IO ()
+shader = undefined
+
+lalala = shader (record (field @"name" 5.5, field @"age" 6)) bla
+  where
+    bla params = undefined
+      where
+        a = param @"name" params
+        b = param @"age" params
+
+-- infixr 5 :.
+-- data List as where
+--   Nil :: List '[]
+--   (:.) :: a -> List as -> List (a ': as)
+
+-- type family (++) (xs :: [*]) (ys :: [*]) :: [*] where
+--   '[]       ++ ys = ys
+--   (x ': xs) ++ ys = x ': (xs ++ ys)
+-- 
+-- data Label (s :: Symbol) = Label Text
+-- 
+-- instance KnownSymbol s => IsLabel s (Label s) where
+--   fromLabel = Label (T.pack $ symbolVal $ Proxy @s)
+-- 
+-- param :: forall s t. KnownSymbol s => t -> (s ::: t)
+-- param t = Param (T.pack $ symbolVal $ Proxy @s) t
+-- 
+-- class RecordParams params where
+--   field :: params -> Label s -> Text
+--   params :: params -> [(Text, Text)]
+-- 
+-- merge :: Record list1 -> Record list2 -> Record (list1 ++ list2)
+-- merge (Record tuples) = undefined
+-- 
+-- bla = record (param @"name" 4.5, param @"age" 7)
