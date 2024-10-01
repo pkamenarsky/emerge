@@ -56,37 +56,7 @@ fi = fromIntegral
 fsz :: Int
 fsz = sizeOf (undefined :: GL.GLfloat)
 
--- Ops -------------------------------------------------------------------------
-
-data OpOptions = OpOptions
-  { opWidth :: Int32
-  , opHeight :: Int32
-  , opFormat :: GL.PixelInternalFormat
-  , opClamp :: GL.Clamping
-  }
-
-defaultOpOptions :: OpOptions
-defaultOpOptions = OpOptions
-  { opWidth = 1024
-  , opHeight = 1024
-  , opFormat = GL.RGBA8
-  , opClamp = GL.ClampToEdge
-  }
-
-data Op params = Op
-  { opTex :: GL.TextureObject
-  , opRender :: params -> IO ()
-  , opDestroy :: IO ()
-  }
-
-data Out = Out
-  { outTex :: GL.TextureObject
-  , outRender :: IO ()
-  }
-
 --------------------------------------------------------------------------------
-
-data RectBuffer = RectBuffer GL.BufferObject
 
 createRectBuffer :: IO RectBuffer
 createRectBuffer = RectBuffer <$> do
@@ -156,11 +126,34 @@ createFramebuffer opts = do
       deleteObjectName fbo
       deleteObjectName tex
 
-data ShaderAttribs = ShaderAttribs
-  { saPos :: GL.AttribLocation
-  , saUv :: Maybe GL.AttribLocation
-  , saProgram :: GL.Program
-  }
+-- TODO: embed basePath directory in binary using TH
+resolveGLSL :: T.Text -> IO Text
+resolveGLSL glsl = flip ST.evalStateT mempty $ do
+  T.unlines <$> sequence
+    [ case strip line of
+        Just include -> rsv (T.unpack include)
+        Nothing      -> pure line
+    | line <- T.lines glsl
+    ]
+  where
+    strip line = T.stripPrefix "#include \"" line >>= T.stripSuffix "\""
+
+    rsv path = do
+      included <- ST.get
+
+      if S.member path included
+        then pure mempty
+        else do
+          ST.modify (S.insert path)
+
+          file <- liftIO $ T.readFile path
+    
+          T.unlines <$> sequence
+            [ case strip line of
+                Just include -> rsv $ Path.takeDirectory path </> T.unpack include
+                Nothing      -> pure line
+            | line <- T.lines file
+            ]
 
 createShader :: ShaderParam p => Text -> Text -> Bool -> IO (ShaderAttribs, p -> IO (), IO ())
 createShader vertT fragT uv = do
@@ -538,34 +531,3 @@ testrender = do
       , "  fragment = vec4(u_tColor * c, 1.);"
       , "}"
       ]
-
---------------------------------------------------------------------------------
-
--- TODO: embed basePath directory in binary using TH
-resolveGLSL :: T.Text -> IO Text
-resolveGLSL glsl = flip ST.evalStateT mempty $ do
-  T.unlines <$> sequence
-    [ case strip line of
-        Just include -> rsv (T.unpack include)
-        Nothing      -> pure line
-    | line <- T.lines glsl
-    ]
-  where
-    strip line = T.stripPrefix "#include \"" line >>= T.stripSuffix "\""
-
-    rsv path = do
-      included <- ST.get
-
-      if S.member path included
-        then pure mempty
-        else do
-          ST.modify (S.insert path)
-
-          file <- liftIO $ T.readFile path
-    
-          T.unlines <$> sequence
-            [ case strip line of
-                Just include -> rsv $ Path.takeDirectory path </> T.unpack include
-                Nothing      -> pure line
-            | line <- T.lines file
-            ]

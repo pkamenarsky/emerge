@@ -44,7 +44,7 @@ scene rectBuf mouseClick mousePos cc = do
 
   where
     -- traceParams = fmap (\c -> defaultTraceParams { tpMaxIterations = fi c, tpFresnelBase = 1, tpFresnelExp = 2 }) cc
-    traceParams :: Signal (TraceParams Value)
+    traceParams :: Signal (TraceParams Values)
     traceParams = TraceParams <$> ccValue 14 <*> fmap (toRange 0.5 2) (ccValue 15) <*> fmap (toRange 1 5) (ccValue 16) <*> fmap (toRange 0 1) (ccValue 17)
 
     toRange :: Float -> Float -> Word8 -> Float
@@ -53,10 +53,10 @@ scene rectBuf mouseClick mousePos cc = do
     ccValue :: Num a => Word8 -> Signal a
     ccValue ccId = fmap fromIntegral (cc <*> pure ccId)
 
-    rotateX :: Signal (RotateParams Value)
+    rotateX :: Signal (RotateParams Values)
     rotateX = fmap (\(x, _) -> RotateParams (GL.Vector3 0 1 0) (tf $ x / (-100))) mousePos
 
-    rotateY :: Signal (RotateParams Value)
+    rotateY :: Signal (RotateParams Values)
     rotateY = fmap (\(_, y) -> RotateParams (GL.Vector3 1 0 0) (tf $ y / 100)) mousePos
 
     fi = fromIntegral

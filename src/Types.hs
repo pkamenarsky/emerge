@@ -26,6 +26,7 @@ import qualified Data.Text as T
 
 import qualified Graphics.Rendering.OpenGL as GL
 
+import GHC.Int
 import GHC.Generics (Generic, Rep, V1, U1 (U1), (:*:) ((:*:)), C, D, K1 (K1), M1 (M1), S, Meta (MetaSel), from, to)
 import GHC.TypeLits
 
@@ -133,6 +134,9 @@ instance GLSLType Float where
 instance GLSLType Double where
   glslType _ = "double"
 
+instance GLSLType (GL.Vector2 Float) where
+  glslType _ = "vec2"
+
 instance GLSLType (GL.Vector3 Float) where
   glslType _ = "vec3"
 
@@ -185,3 +189,39 @@ class NamedShaderParam a where
     => ShaderParamDeriveOpts
     -> ([(Text, Text)], a Fields)
   namedShaderParam opts = fmap to $ gNamedShaderParam (Proxy :: Proxy (Rep (a Values) x)) opts
+
+-- Ops -------------------------------------------------------------------------
+
+data OpOptions = OpOptions
+  { opWidth :: Int32
+  , opHeight :: Int32
+  , opFormat :: GL.PixelInternalFormat
+  , opClamp :: GL.Clamping
+  }
+
+defaultOpOptions :: OpOptions
+defaultOpOptions = OpOptions
+  { opWidth = 1024
+  , opHeight = 1024
+  , opFormat = GL.RGBA8
+  , opClamp = GL.ClampToEdge
+  }
+
+data Op params = Op
+  { opTex :: GL.TextureObject
+  , opRender :: params -> IO ()
+  , opDestroy :: IO ()
+  }
+
+data Out = Out
+  { outTex :: GL.TextureObject
+  , outRender :: IO ()
+  }
+
+data RectBuffer = RectBuffer GL.BufferObject
+
+data ShaderAttribs = ShaderAttribs
+  { saPos :: GL.AttribLocation
+  , saUv :: Maybe GL.AttribLocation
+  , saProgram :: GL.Program
+  }
