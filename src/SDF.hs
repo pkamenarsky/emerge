@@ -306,7 +306,7 @@ sdfOp rectBuf opts eval sdf = do
     { opTex = tex
     , opRender = \_ -> do
         bindFBO
-        bindShader ()
+        bindShader
         set
         drawRect
     , opDestroy = do

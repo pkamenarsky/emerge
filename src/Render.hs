@@ -62,6 +62,7 @@ blit :: RectBuffer -> GL.Size -> IO (GL.TextureObject -> IO (), IO ())
 blit rectBuf viewport = do
   (attribs, bindShader, destroyShader) <- createShader vertT fragT True
   (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
+  setParams <- shaderParam defaultShaderParamDeriveOpts (saProgram attribs)
 
   pure
     ( \tex -> do
@@ -70,7 +71,9 @@ blit rectBuf viewport = do
 
         GL.bindFramebuffer GL.Framebuffer $= GL.defaultFramebufferObject
 
-        bindShader $ BlitParams (Texture tex)
+        bindShader
+        setParams $ BlitParams (Texture tex)
+        
         drawRect
 
     , do
@@ -110,6 +113,7 @@ fill :: RectBuffer -> OpOptions -> IO (Op FillParams)
 fill rectBuf opts = do
   (tex, bindFBO, destroyFBO) <- createFramebuffer opts
   (attribs, bindShader, destroyShader) <- createShader vertT fragT False
+  setParams <- shaderParam defaultShaderParamDeriveOpts (saProgram attribs)
 
   (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
 
@@ -117,7 +121,8 @@ fill rectBuf opts = do
     { opTex = tex
     , opRender = \params -> do
         bindFBO
-        bindShader params
+        bindShader
+        setParams params
         drawRect
     , opDestroy = do
         destroyFBO
@@ -162,6 +167,7 @@ circle :: RectBuffer -> OpOptions -> IO (Op CircleParams)
 circle rectBuf opts = do
   (tex, bindFBO, destroyFBO) <- createFramebuffer opts
   (attribs, bindShader, destroyShader) <- createShader vertT fragT True
+  setParams <- shaderParam defaultShaderParamDeriveOpts (saProgram attribs)
 
   (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
 
@@ -169,7 +175,8 @@ circle rectBuf opts = do
     { opTex = tex
     , opRender = \params -> do
         bindFBO
-        bindShader params
+        bindShader
+        setParams params
         drawRect
     , opDestroy = do
         destroyFBO
@@ -239,6 +246,7 @@ blend :: RectBuffer -> BlendOptions -> IO (Op BlendParams)
 blend rectBuf opts = do
   (tex, bindFBO, destroyFBO) <- createFramebuffer (bpOpOptions opts)
   (attribs, bindShader, destroyShader) <- createShader vertT fragT True
+  setParams <- shaderParam defaultShaderParamDeriveOpts (saProgram attribs)
 
   (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
 
@@ -246,7 +254,8 @@ blend rectBuf opts = do
     { opTex = tex
     , opRender = \params -> do
         bindFBO
-        bindShader params
+        bindShader
+        setParams params
         drawRect
     , opDestroy = do
         destroyFBO
@@ -308,82 +317,3 @@ blendSyn rectBuf opts params a b = do
         }
 
   finalize (liftIO destroy) $ mapView out $ asum [ a, b ]
-
---------------------------------------------------------------------------------
-
-data TestOpts = TestOpts
-  { u_tColor :: GL.Color3 Float
-  , u_tTime :: Float
-  } deriving Generic
-
-instance ShaderParam TestOpts where
-  
-testrender :: IO (IO (), IO ())
-testrender = do
-  GL.debugMessageCallback $= Just dbg
-  rectBuf <- createRectBuffer
-
-  ---
-
-  (tex, bindFBO, destroyFBO) <- createFramebuffer (OpOptions 512 512 GL.RGBA8 GL.ClampToEdge)
-  (attribs, bindShader, destroyShader) <- createShader vertT fragT True
-
-  (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
-
-  (blitToScreen, destroyBlit) <- blit rectBuf (GL.Size 640 480)
-
-  ref <- newIORef 0
-
-  pure
-    ( do
-        t <- atomicModifyIORef ref $ \t' -> (t' + 0.01, t')
-
-        GL.viewport $= (GL.Position 0 0, GL.Size 640 480)
-        GL.clearColor $= GL.Color4 0 0 0 0
-
-        bindFBO
-        bindShader $ TestOpts (GL.Color3 1 1 1) t
-        drawRect
-
-        blitToScreen tex
-    , do
-        destroyFBO
-        destroyShader
-        destroyDrawRect
-        destroyBlit
-    )
-  where
-    dbg msg@(GL.DebugMessage _ _ _ severity _) = do
-      case severity of
-        GL.DebugSeverityNotification -> pure ()
-        _ -> traceIO $ show msg
-
-    vertT = mconcat
-      [ "#version 460\n"
-      , "in vec3 a_pos;\n"
-      , "in vec2 a_uv;\n"
-      , "out vec2 uv;\n"
-      , "void main()\n"
-      , "{\n"
-      , "    gl_Position = vec4(a_pos, 1.0);\n"
-      , "    uv = a_uv;\n"
-      , "}\n"
-      ]
-
-    fragT = T.unlines
-      [ "#version 460"
-      , "#include \"assets/lygia/generative/cnoise.glsl\""
-      , "out vec4 fragment;"
-      , "uniform vec3 u_tColor;\n"
-      , "uniform float u_tTime;\n"
-      , "in vec2 uv;"
-      , "void main()"
-      , "{"
-      , "  float u_period = 10.;"
-      , "  float u_time = 123.;"
-      , "  float u_scale = 0.2;"
-      , "  float u_offset = 0.1;"
-      , "  float c = cnoise(vec3(uv * u_period, u_time + u_tTime)) * u_scale + u_offset;"
-      , "  fragment = vec4(u_tColor * c, 1.);"
-      , "}"
-      ]

@@ -155,7 +155,7 @@ resolveGLSL glsl = flip ST.evalStateT mempty $ do
             | line <- T.lines file
             ]
 
-createShader :: ShaderParam p => Text -> Text -> Bool -> IO (ShaderAttribs, p -> IO (), IO ())
+createShader :: Text -> Text -> Bool -> IO (ShaderAttribs, IO (), IO ())
 createShader vertT fragT uv = do
   vertShader <- GL.createShader GL.VertexShader
   vertT' <- resolveGLSL vertT
@@ -181,13 +181,11 @@ createShader vertT fragT uv = do
   a_pos <- get $ GL.attribLocation program "a_pos"
   a_uv <- if uv then fmap Just $ get $ GL.attribLocation program "a_uv" else pure Nothing
 
-  set <- shaderParam defaultShaderParamDeriveOpts program
+  -- set <- shaderParam defaultShaderParamDeriveOpts program
 
-  return (ShaderAttribs { saPos = a_pos, saUv = a_uv, saProgram = program }, bind program set, destroy vertShader fragShader program)
+  return (ShaderAttribs { saPos = a_pos, saUv = a_uv, saProgram = program }, bind program, destroy vertShader fragShader program)
     where
-      bind program setParams params = do
-        GL.currentProgram $= Just program
-        setParams params
+      bind program = GL.currentProgram $= Just program
 
       destroy vertShader fragShader program = do
         GL.deleteObjectName vertShader
