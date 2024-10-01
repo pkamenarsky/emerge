@@ -17,6 +17,7 @@ import Data.ByteString (ByteString)
 import Data.Foldable
 import Data.IORef
 import Data.ObjectName
+import Data.Maybe (fromMaybe)
 import Data.Machine.MealyT
 import Data.StateVar
 import qualified Data.Set as S
@@ -55,6 +56,42 @@ fi = fromIntegral
 
 fsz :: Int
 fsz = sizeOf (undefined :: GL.GLfloat)
+
+-- Ops -------------------------------------------------------------------------
+
+data OpOptions = OpOptions
+  { opWidth :: Int32
+  , opHeight :: Int32
+  , opFormat :: GL.PixelInternalFormat
+  , opClamp :: GL.Clamping
+  }
+
+defaultOpOptions :: OpOptions
+defaultOpOptions = OpOptions
+  { opWidth = 1024
+  , opHeight = 1024
+  , opFormat = GL.RGBA8
+  , opClamp = GL.ClampToEdge
+  }
+
+data RectBuffer = RectBuffer GL.BufferObject
+
+data ShaderAttribs = ShaderAttribs
+  { saPos :: GL.AttribLocation
+  , saUv :: Maybe GL.AttribLocation
+  , saProgram :: GL.Program
+  }
+
+data Op params = Op
+  { opTex :: GL.TextureObject
+  , opRender :: params -> IO ()
+  , opDestroy :: IO ()
+  }
+
+data Out = Out
+  { outTex :: GL.TextureObject
+  , outRender :: IO ()
+  }
 
 --------------------------------------------------------------------------------
 
@@ -155,10 +192,10 @@ resolveGLSL glsl = flip ST.evalStateT mempty $ do
             | line <- T.lines file
             ]
 
-createShader :: Text -> Text -> Bool -> IO (ShaderAttribs, IO (), IO ())
-createShader vertT fragT uv = do
+createShader :: Maybe Text -> Text -> IO (ShaderAttribs, IO (), IO ())
+createShader vertT fragT = do
   vertShader <- GL.createShader GL.VertexShader
-  vertT' <- resolveGLSL vertT
+  vertT' <- resolveGLSL $ fromMaybe defaultVertT vertT
   GL.shaderSourceBS vertShader $= T.encodeUtf8 vertT'
   GL.compileShader vertShader
 
@@ -181,13 +218,21 @@ createShader vertT fragT uv = do
   a_pos <- get $ GL.attribLocation program "a_pos"
   a_uv <- if uv then fmap Just $ get $ GL.attribLocation program "a_uv" else pure Nothing
 
-  -- set <- shaderParam defaultShaderParamDeriveOpts program
-
   return (ShaderAttribs { saPos = a_pos, saUv = a_uv, saProgram = program }, bind program, destroy vertShader fragShader program)
-    where
-      bind program = GL.currentProgram $= Just program
 
-      destroy vertShader fragShader program = do
-        GL.deleteObjectName vertShader
-        GL.deleteObjectName fragShader
-        GL.deleteObjectName program
+  where
+    uv = False -- TODO: keep around for now
+
+    defaultVertT = [i|
+in vec3 a_pos;
+
+void main() {
+  gl_Position = vec4(a_pos, 1.0);
+} |]
+
+    bind program = GL.currentProgram $= Just program
+
+    destroy vertShader fragShader program = do
+      GL.deleteObjectName vertShader
+      GL.deleteObjectName fragShader
+      GL.deleteObjectName program

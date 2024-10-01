@@ -193,8 +193,6 @@ trace params opts = SDFEval
   { sdfeIncludes = []
   , sdfeUniforms = uniforms
   , sdfeBody = [i|
-in vec2 uv;
-
 vec3 getNormal(vec3 pos) {
   const float eps = 0.0001;
   const vec2 h = vec2(1., -1.);
@@ -207,6 +205,8 @@ vec3 getNormal(vec3 pos) {
 }
 
 void main () {
+  vec2 uv = gl_FragCoord.xy / vec2(#{opWidth opts}, #{opHeight opts});
+
   vec2 pos = uv - 0.5;
   pos.x *= #{aspectRatio};
 
@@ -296,7 +296,7 @@ compile eval sdf = (compileDefs, setParams)
 sdfOp :: RectBuffer -> OpOptions -> (OpOptions -> SDFEval) -> SDF -> IO (Op ())
 sdfOp rectBuf opts eval sdf = do
   (tex, bindFBO, destroyFBO) <- createFramebuffer opts
-  (attribs, bindShader, destroyShader) <- createShader vertT fragT True
+  (attribs, bindShader, destroyShader) <- createShader Nothing fragT
 
   set <- setParams (saProgram attribs)
 
@@ -315,17 +315,6 @@ sdfOp rectBuf opts eval sdf = do
         destroyDrawRect
     }
   where
-    vertT = [i|
-in vec3 a_pos;
-in vec2 a_uv;
-
-varying vec2 uv;
-
-void main() {
-  gl_Position = vec4(a_pos, 1.0);
-  uv = a_uv;
-} |]
-
     (fragT, setParams) = compile (eval opts) sdf
 
 sdfSyn :: MonadIO m => RectBuffer -> OpOptions -> (OpOptions -> SDFEval) -> SDF -> Syn [Out] m a

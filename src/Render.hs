@@ -49,7 +49,6 @@ import Types
 
 import Debug.Trace
 
-
 --------------------------------------------------------------------------------
 
 data BlitParams = BlitParams
@@ -59,8 +58,8 @@ data BlitParams = BlitParams
 instance ShaderParam BlitParams where
 
 blit :: RectBuffer -> GL.Size -> IO (GL.TextureObject -> IO (), IO ())
-blit rectBuf viewport = do
-  (attribs, bindShader, destroyShader) <- createShader vertT fragT True
+blit rectBuf viewport@(GL.Size width height) = do
+  (attribs, bindShader, destroyShader) <- createShader Nothing fragT
   (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
   setParams <- shaderParam defaultShaderParamDeriveOpts (saProgram attribs)
 
@@ -81,23 +80,11 @@ blit rectBuf viewport = do
         destroyDrawRect
     ) 
   where
-    vertT = [i|
-in vec3 a_pos;
-in vec2 a_uv;
-
-varying vec2 uv;
-
-void main() {
-    uv = a_uv;
-    gl_Position = vec4(a_pos, 1.0);
-} |]
-      
     fragT = [i|
-in vec2 uv;
-
 uniform sampler2D blitSource;
 
 void main() {
+  vec2 uv = gl_FragCoord.xy / vec2(#{width}, #{height});
   gl_FragColor = texture2D(blitSource, uv);
 } |]
 
@@ -112,7 +99,7 @@ instance ShaderParam FillParams where
 fill :: RectBuffer -> OpOptions -> IO (Op FillParams)
 fill rectBuf opts = do
   (tex, bindFBO, destroyFBO) <- createFramebuffer opts
-  (attribs, bindShader, destroyShader) <- createShader vertT fragT False
+  (attribs, bindShader, destroyShader) <- createShader Nothing fragT
   setParams <- shaderParam defaultShaderParamDeriveOpts (saProgram attribs)
 
   (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
@@ -130,13 +117,6 @@ fill rectBuf opts = do
         destroyDrawRect
     }
   where
-    vertT = [i|
-in vec3 a_pos;
-
-void main() {
-    gl_Position = vec4(a_pos, 1.0);
-} |]
-
     fragT = [i|
 uniform vec4 foColor;
 
@@ -166,7 +146,7 @@ instance ShaderParam CircleParams where
 circle :: RectBuffer -> OpOptions -> IO (Op CircleParams)
 circle rectBuf opts = do
   (tex, bindFBO, destroyFBO) <- createFramebuffer opts
-  (attribs, bindShader, destroyShader) <- createShader vertT fragT True
+  (attribs, bindShader, destroyShader) <- createShader Nothing fragT
   setParams <- shaderParam defaultShaderParamDeriveOpts (saProgram attribs)
 
   (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
@@ -184,25 +164,14 @@ circle rectBuf opts = do
         destroyDrawRect
     }
   where
-    vertT = [i|
-in vec3 a_pos;
-in vec2 a_uv;
-
-varying vec2 uv;
-
-void main() {
-  gl_Position = vec4(a_pos, 1.0);
-  uv = a_uv;
-} |]
-
     fragT = [i|
-in vec2 uv;
-
 uniform vec4 cpColor;
 uniform vec2 cpCenter;
 uniform float cpRadius;
 
 void main() {
+  vec2 uv = gl_FragCoord.xy / vec2(#{opWidth opts}, #{opHeight opts});
+
   float dist = distance(uv, cpCenter);
   float delta = fwidth(dist);
   float alpha = smoothstep(cpRadius - delta, cpRadius, dist);
@@ -245,7 +214,7 @@ instance ShaderParam BlendParams where
 blend :: RectBuffer -> BlendOptions -> IO (Op BlendParams)
 blend rectBuf opts = do
   (tex, bindFBO, destroyFBO) <- createFramebuffer (bpOpOptions opts)
-  (attribs, bindShader, destroyShader) <- createShader vertT fragT True
+  (attribs, bindShader, destroyShader) <- createShader Nothing fragT
   setParams <- shaderParam defaultShaderParamDeriveOpts (saProgram attribs)
 
   (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
@@ -263,26 +232,14 @@ blend rectBuf opts = do
         destroyDrawRect
     }
   where
-    vertT = [i|
-in vec3 a_pos;
-in vec2 a_uv;
-
-varying vec2 uv;
-
-void main() {
-    uv = a_uv;
-
-    gl_Position = vec4(a_pos, 1.0);
-} |]
-
     fragT = [i|
-in vec2 uv;
-
 uniform sampler2D bpTex1;
 uniform sampler2D bpTex2;
 uniform float bpFactor;
 
 void main() {
+  vec2 uv = gl_FragCoord.xy / vec2(#{opWidth $ bpOpOptions opts}, #{opHeight $ bpOpOptions opts});
+
   #{mode}
 } |]
 

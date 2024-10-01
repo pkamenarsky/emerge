@@ -32,7 +32,7 @@ import GHC.TypeLits
 
 --------------------------------------------------------------------------------
 
-newtype Frame = Frame Int
+newtype Time = Time Float
   deriving (Eq, Ord)
 
 --------------------------------------------------------------------------------
@@ -189,39 +189,3 @@ class NamedShaderParam a where
     => ShaderParamDeriveOpts
     -> ([(Text, Text)], a Fields)
   namedShaderParam opts = fmap to $ gNamedShaderParam (Proxy :: Proxy (Rep (a Values) x)) opts
-
--- Ops -------------------------------------------------------------------------
-
-data OpOptions = OpOptions
-  { opWidth :: Int32
-  , opHeight :: Int32
-  , opFormat :: GL.PixelInternalFormat
-  , opClamp :: GL.Clamping
-  }
-
-defaultOpOptions :: OpOptions
-defaultOpOptions = OpOptions
-  { opWidth = 1024
-  , opHeight = 1024
-  , opFormat = GL.RGBA8
-  , opClamp = GL.ClampToEdge
-  }
-
-data Op params = Op
-  { opTex :: GL.TextureObject
-  , opRender :: params -> IO ()
-  , opDestroy :: IO ()
-  }
-
-data Out = Out
-  { outTex :: GL.TextureObject
-  , outRender :: IO ()
-  }
-
-data RectBuffer = RectBuffer GL.BufferObject
-
-data ShaderAttribs = ShaderAttribs
-  { saPos :: GL.AttribLocation
-  , saUv :: Maybe GL.AttribLocation
-  , saProgram :: GL.Program
-  }

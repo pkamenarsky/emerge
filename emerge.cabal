@@ -25,6 +25,8 @@ source-repository head
 
 library
   exposed-modules:
+      Common
+      GPT
       Render
       SDF
       Syn

@@ -34,7 +34,7 @@ scene :: MonadIO m => RectBuffer -> Event () -> Signal (Double, Double) -> Signa
 scene rectBuf mouseClick mousePos cc = do
   -- asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.05), on mouseClick ]
   -- asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.1), on mouseClick ]
-  -- asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.15), on mouseClick ]
+  asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.15), on mouseClick ]
 
   sdfSyn rectBuf defaultOpOptions
     (trace traceParams)
