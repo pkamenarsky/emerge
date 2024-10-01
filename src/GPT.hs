@@ -34,3 +34,15 @@ data DefaultParams m = DefaultParams
 
 instance ShaderParam (DefaultParams Values)
 instance NamedShaderParam DefaultParams
+
+gptShader :: RectBuffer -> OpOptions -> IO (Op (DefaultParams Values))
+gptShader = undefined
+
+gptShaderSyn :: MonadIO m => RectBuffer -> OpOptions -> Signal (DefaultParams Values) -> Syn [Out] m a
+gptShaderSyn rectBuf opts params = do
+  Op tex render destroy <- unsafeNonBlockingIO $ gptShader rectBuf opts
+
+  finalize (liftIO destroy) $ view $ pure $ Out
+    { outTex = tex
+    , outRender = signalValue params >>= render
+    }

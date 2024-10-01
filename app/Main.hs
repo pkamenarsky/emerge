@@ -15,6 +15,7 @@ import qualified Data.Vector.Storable as V
 import qualified Graphics.Rendering.OpenGL as GL
 import qualified Graphics.UI.GLFW as GLFW
 
+import Common
 import Types
 import Render
 import SDF

@@ -22,7 +22,7 @@ import qualified Graphics.Rendering.OpenGL as GL
 
 import GHC.Generics (Generic)
 
-import Render
+import Common
 import Syn
 import Syn.Run
 import Types
