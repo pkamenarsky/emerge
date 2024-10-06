@@ -17,12 +17,6 @@ import Syn
 
 --------------------------------------------------------------------------------
 
-newtype Signal a = Signal (IO a)
-  deriving (Functor, Applicative, Monad)
-
-signalValue :: MonadIO m => Signal a -> m a
-signalValue (Signal v) = liftIO v
-
 data Event a = Event (IORef (Maybe a))
 
 newEvent :: IO (Event a)

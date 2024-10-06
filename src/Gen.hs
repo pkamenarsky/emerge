@@ -61,13 +61,22 @@ genShader rectBuf opts tuples fragT = do
         destroyDrawRect
     }
 
-data GenSignal params = forall subtuples subparams. (FromTuples subtuples (HList subparams), Params subparams, SubSet subparams (Param "u_resolution" (GL.Vector2 Float) ': params) ~ 'True) => GenSignal (Signal subtuples)
+data GenSignal params = forall subtuples subparams subsigparams. (FromTuples subtuples (HList subsigparams), SeqParams subsigparams subparams, Params subparams, SubSet subparams (Param "u_resolution" (GL.Vector2 Float) ': params) ~ 'True) => GenSignal subtuples
 
-genShaderSyn :: MonadIO m => FromTuples tuples (HList params) => Params params => RectBuffer -> OpOptions -> tuples -> ([(Text, Text)] -> HList (Param "u_resolution" (GL.Vector2 Float) ': params) -> Text) -> GenSignal params -> Syn [Out] m a
+genShaderSyn
+  :: MonadIO m
+  => FromTuples tuples (HList params)
+  => Params params
+  => RectBuffer
+  -> OpOptions
+  -> tuples
+  -> ([(Text, Text)] -> HList (Param "u_resolution" (GL.Vector2 Float) ': params) -> Text)
+  -> GenSignal params
+  -> Syn [Out] m a
 genShaderSyn rectBuf opts tuples fragT (GenSignal signal) = do
   GenOp tex render destroy <- unsafeNonBlockingIO $ genShader rectBuf opts tuples fragT
 
   finalize (liftIO destroy) $ view $ pure $ Out
     { outTex = tex
-    , outRender = signalValue signal >>= (render . fromTuples)
+    , outRender = seqParams (fromTuples signal) >>= render
     }

@@ -7,6 +7,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
@@ -21,15 +22,16 @@
 
 module Types where
 
+import Control.Monad.IO.Class
 import Control.Monad (when)
 
-import Data.Foldable
 import qualified Data.Map.Strict as M
 import Data.Proxy
 import Data.StateVar
 import Data.Text (Text)
 import Data.Type.Bool
 import qualified Data.Text as T
+import Data.Word
 
 import qualified Graphics.Rendering.OpenGL as GL
 
@@ -136,6 +138,12 @@ instance GLSLType (GL.Vector2 Float) where
 
 instance GLSLType (GL.Vector3 Float) where
   glslType _ = "vec3"
+
+instance GLSLType (GL.Vector4 Float) where
+  glslType _ = "vec4"
+
+instance GLSLType (GL.Color4 Float) where
+  glslType _ = "vec4"
 
 --------------------------------------------------------------------------------
 
@@ -307,6 +315,14 @@ instance (GLSLType t, GLSLType u, GLSLType v, GLSLType w) => NamedShaderParams (
 
 --------------------------------------------------------------------------------
 
+newtype Signal a = Signal (IO a)
+  deriving (Functor, Applicative, Monad)
+
+signalValue :: MonadIO m => Signal a -> m a
+signalValue (Signal v) = liftIO v
+
+--------------------------------------------------------------------------------
+
 infixr 5 :.
 data HList as where
   Nil :: HList '[]
@@ -419,11 +435,17 @@ instance {-# OVERLAPPING #-} (KnownSymbol s, KnownNat n, Params ps) => Params (P
 
 --------------------------------------------------------------------------------
 
-class HAp f a | f -> a where
-  ap :: f -> a
+class SeqParams s v | s -> v where
+  seqParams :: HList s -> IO (HList v)
 
-instance (Applicative m, HAp (HList fs) (HList as)) => HAp (HList (Param s (m t) ': fs)) (HList (m (Param s t) ': as)) where
-  ap (m :. fs) = sequenceA m :. ap fs
+instance SeqParams '[] '[] where
+  seqParams _ = pure Nil
+
+instance SeqParams ss vs => SeqParams (Param s (Signal t) ': ss) (Param s t ': vs) where
+  seqParams (Param t :. ss) = do
+    v <- signalValue t
+    vs <- seqParams ss
+    pure (Param v :. vs)
 
 --------------------------------------------------------------------------------
 
@@ -439,6 +461,17 @@ vec2 = GL.Vector2
 
 vec3 :: Float -> Float -> Float -> GL.Vector3 Float
 vec3 = GL.Vector3
+
+vec4 :: Float -> Float -> Float -> Float -> GL.Vector4 Float
+vec4 = GL.Vector4
+
+color4 :: Float -> Float -> Float -> Float -> GL.Color4 Float
+color4 = GL.Color4
+
+rgba :: Word8 -> Word8 -> Word8 -> Word8 -> GL.Color4 Float
+rgba r g b a = GL.Color4 (c r) (c g) (c b) (c a)
+  where
+    c x = fromIntegral x / 255.0
 
 float :: Float -> Float
 float = id
@@ -463,7 +496,9 @@ shaderParams' params =
 
 param, (=:) :: Name s -> t -> Param s t
 param _ = Param
+
 (=:) = param
+infixr 0 =:
 
 field :: forall s params. ElemSym s params ~ 'True => KnownSymbol s => HList params -> Name s -> String
 field _ _ = symbolVal @s Proxy

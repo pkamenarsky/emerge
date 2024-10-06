@@ -195,15 +195,23 @@ void main() {
 --------------------------------------------------------------------------------
 
 scene :: MonadIO m => RectBuffer -> Event () -> Signal (Double, Double) -> Signal (Word8 -> Word8) -> Syn [Out] m a
-scene rectBuf mouseClick mousePos cc = do
+scene rectBuf mouseClick mousePos ccMap = do
   -- asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.05), on mouseClick ]
   -- asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.1), on mouseClick ]
-  asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.15), on mouseClick ]
+  -- asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.15), on mouseClick ]
+  asum
+    [ void $ circleSyn' rectBuf defaultOpOptions $ GenSignal
+        ( #radius =: cc 14 0 0.5
+        , #color  =: color4 <$> cc 15 0 1 <*> cc 16 0 1 <*> cc 17 0 1 <*> pure 1
+        )
+    , on mouseClick
+    ]
 
-  -- gptShader0 rectBuf defaultOpOptions (Params2 <$> fmap (toRange 1 10) (ccValue 14) <*> fmap (toRange 0 2) (ccValue 15))
-  gptShader0 rectBuf defaultOpOptions $ GenSignal $ (,)
-    <$> (param #p0 <$> fmap (toRange 1 10) (ccValue 14))
-    <*> (param #p1 <$> fmap (toRange 0 2) (ccValue 15))
+  gptShader0 rectBuf defaultOpOptions $ GenSignal
+    ( #p0 =: cc 14 1 10
+    , #p1 =: cc 15 0 2
+    )
+
   -- gptShader1 rectBuf defaultOpOptions (Params4 <$> ccValue 14 <*> fmap (toRange 0 1) (ccValue 15) <*> fmap (toRange 0 20) (ccValue 16) <*> fmap (toRange 0.1 5) (ccValue 17))
 
   -- sdfSyn rectBuf defaultOpOptions
@@ -221,8 +229,11 @@ scene rectBuf mouseClick mousePos cc = do
     toRange :: Float -> Float -> Word8 -> Float
     toRange mi ma w = mi + (realToFrac w / 127.0 * (ma - mi))
 
+    cc :: Word8 -> Float -> Float -> Signal Float
+    cc ccId i a = fmap (toRange i a) (ccValue ccId)
+
     ccValue :: Num a => Word8 -> Signal a
-    ccValue ccId = fmap fromIntegral (cc <*> pure ccId)
+    ccValue ccId = fmap fromIntegral (ccMap <*> pure ccId)
 
     rotateX :: Signal (RotateParams Values)
     rotateX = fmap (\(x, _) -> RotateParams (GL.Vector3 0 1 0) (tf $ x / (-100))) mousePos

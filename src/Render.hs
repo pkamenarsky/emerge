@@ -1,8 +1,11 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Render where
 
@@ -37,6 +40,7 @@ import qualified Graphics.Rendering.OpenGL as GL
 import Common
 import Syn
 import Syn.Run
+import Gen
 
 import GHC.Generics
 import GHC.Int
@@ -187,6 +191,37 @@ circleSyn rectBuf opts params = do
     { outTex = tex
     , outRender = signalValue params >>= render
     }
+
+circleSyn'
+  :: MonadIO m
+  => RectBuffer
+  -> OpOptions
+  -> GenSignal
+       [ Param "radius" Float
+       , Param "color" (GL.Color4 Float)
+       , Param "center" (GL.Vector2 Float)
+       ]
+  -> Syn [Out] m a
+circleSyn' rectBuffer opts = genShaderSyn rectBuffer opts def fragT
+  where
+    def =
+      ( #radius =: float 0.5
+      , #color  =: color4 1 1 1 1
+      , #center =: vec2 0.5 0.5
+      )
+    fragT uniforms params = [i|
+
+#{formatUniforms uniforms}
+
+void main() {
+  vec2 uv = gl_FragCoord.xy / #{field params #u_resolution}.xy;
+
+  float dist = distance(uv, #{field params #center});
+  float delta = fwidth(dist);
+  float alpha = smoothstep(#{field params #radius} - delta, #{field params #radius}, dist);
+
+  gl_FragColor = #{field params #color} * (1. - alpha);
+} |]
 
 -- Ops (blend) -----------------------------------------------------------------
 
