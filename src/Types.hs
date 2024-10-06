@@ -118,32 +118,16 @@ genericShaderParam opts program = do
 
 --------------------------------------------------------------------------------
 
-class GLSLType t where
-  glslType :: Proxy t -> Text
+class GLSLType t where glslType :: Proxy t -> Text
 
-instance GLSLType GL.GLint where
-  glslType _ = "int"
-
--- instance GLSLType GL.GLuint where
---   glslType _ = "uint"
-
-instance GLSLType Float where
-  glslType _ = "float"
-
-instance GLSLType Double where
-  glslType _ = "double"
-
-instance GLSLType (GL.Vector2 Float) where
-  glslType _ = "vec2"
-
-instance GLSLType (GL.Vector3 Float) where
-  glslType _ = "vec3"
-
-instance GLSLType (GL.Vector4 Float) where
-  glslType _ = "vec4"
-
-instance GLSLType (GL.Color4 Float) where
-  glslType _ = "vec4"
+instance GLSLType GL.GLint where glslType _ = "int"
+-- instance GLSLType GL.GLuint where glslType _ = "uint"
+instance GLSLType Float where glslType _ = "float"
+instance GLSLType Double where glslType _ = "double"
+instance GLSLType (GL.Vector2 Float) where glslType _ = "vec2"
+instance GLSLType (GL.Vector3 Float) where glslType _ = "vec3"
+instance GLSLType (GL.Vector4 Float) where glslType _ = "vec4"
+instance GLSLType (GL.Color4 Float) where glslType _ = "vec4"
 
 --------------------------------------------------------------------------------
 
