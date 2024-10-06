@@ -1,3 +1,4 @@
+* TODO come up with a way to mark "missing" signals (e.g. ccs)
 * IDEA livecoding esolang
 blend (circle 14 15) *
       sdf * d * e * f * g

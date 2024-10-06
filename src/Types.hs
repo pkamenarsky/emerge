@@ -313,7 +313,6 @@ data HList as where
   (:.) :: a -> HList as -> HList (a ': as)
 
 newtype Param (s :: Symbol) t = Param t
-  deriving (Functor, Foldable, Traversable)
 
 type family IsEq (eq :: Ordering) :: Bool where
   IsEq 'EQ = 'True
