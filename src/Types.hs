@@ -4,11 +4,15 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 {-# LANGUAGE DeriveGeneric #-}
 
@@ -19,11 +23,13 @@ import Control.Monad (when)
 import Data.Proxy
 import Data.StateVar
 import Data.Text (Text)
+import Data.Type.Bool
 import qualified Data.Text as T
 
 import qualified Graphics.Rendering.OpenGL as GL
 
 import GHC.Generics (Generic, Rep, V1, U1 (U1), (:*:) ((:*:)), C, D, K1 (K1), M1 (M1), S, Meta (MetaSel), from, to)
+import GHC.OverloadedLabels
 import GHC.TypeLits
 
 --------------------------------------------------------------------------------
@@ -293,3 +299,134 @@ instance (GLSLType t, GLSLType u, GLSLType v, GLSLType w) => NamedShaderParams (
       n1 = spFieldLabelModifier opts "u_par1"
       n2 = spFieldLabelModifier opts "u_par2"
       n3 = spFieldLabelModifier opts "u_par3"
+
+--------------------------------------------------------------------------------
+
+infixr 5 :.
+data HList as where
+  Nil :: HList '[]
+  (:.) :: a -> HList as -> HList (a ': as)
+
+data Param (s :: Symbol) t = Param t
+
+type family IsEq (eq :: Ordering) :: Bool where
+  IsEq 'EQ = 'True
+  IsEq _ = 'False
+
+type family ParamsEq p q :: Bool where
+  ParamsEq (Param s t) (Param s' t) = IsEq (CmpSymbol s s')
+  ParamsEq _ _ = 'False
+
+-- Check if an element exists in a type-level list
+type family Elem (x :: k) (xs :: [k]) :: Bool where
+    Elem x '[]       = 'False
+    Elem x (y ': xs) = If (ParamsEq x y) 'True (Elem x xs)
+
+-- Check if an element exists in a type-level list
+type family ElemSym (x :: Symbol) (xs :: [k]) :: Bool where
+    ElemSym x '[]                = 'False
+    ElemSym s (Param s' t ': xs) = If (IsEq (CmpSymbol s s')) 'True (ElemSym s xs)
+
+-- Remove an element from a type-level list
+type family Remove (x :: k) (xs :: [k]) :: [k] where
+    Remove x '[]       = '[]
+    Remove x (y ': xs) = If (ParamsEq x y) xs (y ': Remove x xs)
+
+-- Check if two lists are equal as sets (unordered comparison)
+type family EqualSet (xs :: [k]) (ys :: [k]) :: Bool where
+    EqualSet '[] '[] = 'True
+    EqualSet (x ': xs) ys = Elem x ys && EqualSet xs (Remove x ys)
+    EqualSet _ _ = 'False
+
+--------------------------------------------------------------------------------
+
+newtype O a = O a
+
+class FromTuples tuples hlist | tuples -> hlist where
+  fromTuples :: tuples -> hlist
+
+instance FromTuples (O a) (HList '[a]) where fromTuples (O a) = a :. Nil
+instance FromTuples (a, b) (HList '[a, b]) where fromTuples (a, b) = a :. b :. Nil
+instance FromTuples (a, b, c) (HList '[a, b, c]) where fromTuples (a, b, c) = a :. b :. c :. Nil
+instance FromTuples (a, b, c, d) (HList '[a, b, c, d]) where fromTuples (a, b, c, d) = a :. b :. c :. d :. Nil
+instance FromTuples (a, b, c, d, e) (HList '[a, b, c, d, e]) where fromTuples (a, b, c, d, e) = a :. b :. c :. d :. e :. Nil
+instance FromTuples (a, b, c, d, e, f) (HList '[a, b, c, d, e, f]) where fromTuples (a, b, c, d, e, f) = a :. b :. c :. d :. e :. f :. Nil
+instance FromTuples (a, b, c, d, e, f, g) (HList '[a, b, c, d, e, f, g]) where fromTuples (a, b, c, d, e, f, g) = a :. b :. c :. d :. e :. f :. g :. Nil
+
+--------------------------------------------------------------------------------
+
+class Params ps where
+  params :: HList ps -> GL.Program -> ([(Text, Text)], IO (HList ps -> IO ()))
+
+instance Params '[] where
+  params Nil _ = ([], pure $ \_ -> pure ())
+
+instance (KnownSymbol s, GLSLType t, GL.Uniform t, Params ps) => Params (Param s t ': ps) where
+  params (Param t :. ps) program = ((T.pack $ symbolVal @s Proxy, glslType @t Proxy):fields, set)
+    where
+      (fields, getSet') = params ps program
+
+      set = do
+        loc <- GL.uniformLocation program (symbolVal @s Proxy)
+        when (loc < GL.UniformLocation 0) $ error $ "params: uniform " <> symbolVal @s Proxy <> " not found"
+        GL.uniform loc $= t
+
+        set' <- getSet'
+
+        pure $ \(Param t' :. ps') -> GL.uniform loc $= t' >> set' ps'
+
+--------------------------------------------------------------------------------
+
+data Name (s :: Symbol) = Name
+
+instance (s ~ t) => IsLabel s (Name t) where
+  fromLabel = Name
+
+--------------------------------------------------------------------------------
+
+vec2 :: Float -> Float -> GL.Vector2 Float
+vec2 = GL.Vector2
+
+vec3 :: Float -> Float -> Float -> GL.Vector3 Float
+vec3 = GL.Vector3
+
+float :: Float -> Float
+float = id
+
+int :: GL.GLint -> GL.GLint
+int = id
+
+shader :: FromTuples tuples (HList params) => Params params => tuples -> IO ()
+shader = undefined
+
+param, (=:) :: Name s -> t -> Param s t
+param _ = Param
+(=:) = param
+
+field :: forall s params tuples. FromTuples tuples (HList params) => ElemSym s params ~ 'True => KnownSymbol s => tuples -> Name s -> String
+field _ _ = symbolVal @s Proxy
+
+-- t1 = shader (O $ param @"lalal" (undefined :: GL.Vector2 Float))
+t2 = shader
+  ( #lalal =: vec2 5 6
+  , #was   =: vec3 5 6 7
+  , #max_iterations =: int 6
+  )
+
+defParams = 
+  ( #lalal =: vec2 5 6
+  , #was   =: vec3 5 6 7
+  , #max_iterations =: int 6
+  )
+
+f = field defParams #was
+
+-- bla = param @"asDu" (6 :: Int) :. param @"asD" (6 :: Int) :. param @"lal" ("asd" :: String) :. Nil
+-- 
+-- bla2 = param @"lal" ("asd" :: String) :. param @"asDu" (6 :: Int) :. param @"asD" (6 :: Int) :. Nil
+
+cmp :: EqualSet as bs ~ 'True => HList as -> HList bs -> ()
+cmp = undefined
+
+-- c :: ()
+-- c = cmp bla bla2
