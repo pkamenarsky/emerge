@@ -1,6 +1,8 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
@@ -21,6 +23,7 @@ module Types where
 
 import Control.Monad (when)
 
+import Data.Foldable
 import qualified Data.Map.Strict as M
 import Data.Proxy
 import Data.StateVar
@@ -309,7 +312,8 @@ data HList as where
   Nil :: HList '[]
   (:.) :: a -> HList as -> HList (a ': as)
 
-data Param (s :: Symbol) t = Param t
+newtype Param (s :: Symbol) t = Param t
+  deriving (Functor, Foldable, Traversable)
 
 type family IsEq (eq :: Ordering) :: Bool where
   IsEq 'EQ = 'True
@@ -359,17 +363,17 @@ instance FromTuples (a, b, c, d, e, f, g) (HList '[a, b, c, d, e, f, g]) where f
 --------------------------------------------------------------------------------
 
 class Params ps where
-  params :: HList ps -> ([(Text, Text)], GL.Program -> IO [(String, GL.UniformLocation)])
+  initParams :: HList ps -> ([(Text, Text)], GL.Program -> IO [(String, GL.UniformLocation)])
   setUniform :: HList ps -> M.Map String GL.UniformLocation -> IO ()
 
 instance Params '[] where
-  params Nil = ([], mempty)
+  initParams Nil = ([], mempty)
   setUniform _ _ = pure ()
 
 instance (KnownSymbol s, GLSLType t, GL.Uniform t, Params ps) => Params (Param s t ': ps) where
-  params (Param t :. ps) = ((T.pack $ symbolVal @s Proxy, glslType @t Proxy):fields, uniforms)
+  initParams (Param t :. ps) = ((glslType @t Proxy, T.pack $ symbolVal @s Proxy):fields, uniforms)
     where
-      (fields, getUniforms') = params ps
+      (fields, getUniforms') = initParams ps
 
       uniforms program = do
         loc <- GL.uniformLocation program (symbolVal @s Proxy)
@@ -379,14 +383,18 @@ instance (KnownSymbol s, GLSLType t, GL.Uniform t, Params ps) => Params (Param s
         uniforms' <- getUniforms' program
 
         pure ((symbolVal @s Proxy, loc):uniforms')
+
   setUniform (Param t :. ps) uniforms
-    | Just loc <- M.lookup (symbolVal @s Proxy) uniforms = GL.uniform loc $= t
+    | Just loc <- M.lookup (symbolVal @s Proxy) uniforms = do
+        GL.uniform loc $= t
+        setUniform ps uniforms
+
     | otherwise = setUniform ps uniforms
 
 instance {-# OVERLAPPING #-} (KnownSymbol s, KnownNat n, Params ps) => Params (Param s (Texture n) ': ps) where
-  params (Param (Texture t) :. ps) = ((T.pack $ symbolVal @s Proxy, "sampler2D"):fields, uniforms)
+  initParams (Param (Texture t) :. ps) = (("sampler2D", T.pack $ symbolVal @s Proxy):fields, uniforms)
     where
-      (fields, getUniforms') = params ps
+      (fields, getUniforms') = initParams ps
 
       uniforms program = do
         loc <- GL.uniformLocation program (symbolVal @s Proxy)
@@ -399,12 +407,23 @@ instance {-# OVERLAPPING #-} (KnownSymbol s, KnownNat n, Params ps) => Params (P
         uniforms' <- getUniforms' program
 
         pure ((symbolVal @s Proxy, loc):uniforms')
+
   setUniform (Param (Texture t) :. ps) uniforms
     | Just loc <- M.lookup (symbolVal @s Proxy) uniforms = do
         GL.activeTexture $= GL.TextureUnit (fromInteger $ natVal $ Proxy @n)
         GL.textureBinding GL.Texture2D $= Just t
         GL.uniform loc $= GL.TextureUnit (fromInteger $ natVal $ Proxy @n)
+        setUniform ps uniforms
+
     | otherwise = setUniform ps uniforms
+
+--------------------------------------------------------------------------------
+
+class HAp f a | f -> a where
+  ap :: f -> a
+
+instance (Applicative m, HAp (HList fs) (HList as)) => HAp (HList (Param s (m t) ': fs)) (HList (m (Param s t) ': as)) where
+  ap (m :. fs) = sequenceA m :. ap fs
 
 --------------------------------------------------------------------------------
 
@@ -430,18 +449,17 @@ int = id
 tex :: GL.TextureObject -> Texture n
 tex = Texture
 
-data Set params
-  = Set { set :: forall subtuples subparams. FromTuples subtuples (HList subparams) => Params subparams => SubSet subparams params ~ 'True => subtuples -> IO () }
+data Set params = Set { set :: forall subparams. Params subparams => SubSet subparams params ~ 'True => HList subparams -> IO () }
 
-shaderParams' :: FromTuples tuples (HList params) => Params params => tuples -> ([(Text, Text)], GL.Program -> IO (Set params))
-shaderParams' tuples =
+shaderParams' :: Params params => HList params -> ([(Text, Text)], GL.Program -> IO (Set params))
+shaderParams' params =
   ( fields
   , \program -> do
       uniforms <- M.fromList <$> initUniforms program
-      pure $ Set $ \subtuples -> setUniform (fromTuples subtuples) uniforms
+      pure $ Set $ \subtuples -> setUniform subtuples uniforms
   )
   where
-    (fields, initUniforms) = params (fromTuples tuples)
+    (fields, initUniforms) = initParams params
 
 param, (=:) :: Name s -> t -> Param s t
 param _ = Param
@@ -449,19 +467,3 @@ param _ = Param
 
 field :: forall s params. ElemSym s params ~ 'True => KnownSymbol s => HList params -> Name s -> String
 field _ _ = symbolVal @s Proxy
-
-blaaaa = do
-  t2 <- initt2 undefined
-  set t2
-    ( #lalal =: vec2 5 6
-    , #was   =: vec3 5 6 7
-    , #max_iterations =: int 6
-    )
-  where
-    (_, initt2) = shaderParams'
-      ( #lalal =: vec2 5 6
-      , #was   =: vec3 5 6 7
-      , #max_iterations =: int 6
-      , #normal_map =: tex @0 undefined
-      )
-

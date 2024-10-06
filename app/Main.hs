@@ -1,8 +1,12 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedLabels #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE QuasiQuotes #-}
 
 module Main (main) where
 
+import Control.Applicative
 import Control.Exception
 import Control.Monad (void)
 import Control.Monad.IO.Class
@@ -41,14 +45,15 @@ type Shader0Params = Params2
   Float -- 10.0
   Float -- 0.5
 
-gptShader0 :: MonadIO m => RectBuffer -> OpOptions -> Signal (Shader0Params Values) -> Syn [Out] m a
-gptShader0 rectBuf opts = genShaderSyn rectBuf opts fragT
+gptShader0 :: MonadIO m => RectBuffer -> OpOptions -> GenSignal [Param "p0" Float, Param "p1" Float] -> Syn [Out] m a
+gptShader0 rectBuf opts = genShaderSyn rectBuf opts def fragT
   where
-    fragT uniforms defParams (Params2 p0 p1) = [i|
-\#ifdef GL_ES
-precision mediump float;
-\#endif
+    def =
+      ( #p0 =: float 10
+      , #p1 =: float 0.5
+      )
 
+    fragT uniforms params = [i|
 #{formatUniforms uniforms}
 
 const int MAX_STEPS = 100;
@@ -62,7 +67,7 @@ float gyroid(vec3 p) {
 
 // Function to get distance to the object
 float map(vec3 p) {
-    return gyroid(p * #{p0}) * #{p1} + length(p) - 1.0;  // Combine with sphere for variation
+    return gyroid(p * #{field params #p0}) * #{field params #p1} + length(p) - 1.0;  // Combine with sphere for variation
 }
 
 // Raymarching function
@@ -99,7 +104,7 @@ float getLight(vec3 p) {
 }
 
 void main() {
-    vec2 uv = (gl_FragCoord.xy - 0.5 * #{u_resolution defParams}.xy) / #{u_resolution defParams}.y;
+    vec2 uv = (gl_FragCoord.xy - 0.5 * #{field params #u_resolution}.xy) / #{field params #u_resolution}.y;
 
     vec3 ro = vec3(0.0, 0.0, 5.0);
     vec3 rd = normalize(vec3(uv, -1.5));
@@ -114,11 +119,13 @@ void main() {
     if (d < MAX_DIST) {
         vec3 p = ro + rd * d;
         float light = getLight(p);
-        col = mix(vec3(0.2, 0.3, 0.7), vec3(0.9, 0.9, 0.9), light);
+        col = mix(vec3(0.01, 0.01, 0.01), vec3(0.5, 0.5, 0.5), light);
     }
 
    gl_FragColor = vec4(col, 1.0);
 } |]
+
+{-
 
 type Shader1Params = Params4
   GL.GLint -- 16.0
@@ -183,6 +190,8 @@ void main() {
     gl_FragColor = vec4(color, 1.0);
 } |]
 
+-}
+
 --------------------------------------------------------------------------------
 
 scene :: MonadIO m => RectBuffer -> Event () -> Signal (Double, Double) -> Signal (Word8 -> Word8) -> Syn [Out] m a
@@ -191,7 +200,10 @@ scene rectBuf mouseClick mousePos cc = do
   -- asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.1), on mouseClick ]
   asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.15), on mouseClick ]
 
-  gptShader0 rectBuf defaultOpOptions (Params2 <$> fmap (toRange 1 10) (ccValue 14) <*> fmap (toRange 0 2) (ccValue 15))
+  -- gptShader0 rectBuf defaultOpOptions (Params2 <$> fmap (toRange 1 10) (ccValue 14) <*> fmap (toRange 0 2) (ccValue 15))
+  gptShader0 rectBuf defaultOpOptions $ GenSignal $ (,)
+    <$> (param #p0 <$> fmap (toRange 1 10) (ccValue 14))
+    <*> (param #p1 <$> fmap (toRange 0 2) (ccValue 15))
   -- gptShader1 rectBuf defaultOpOptions (Params4 <$> ccValue 14 <*> fmap (toRange 0 1) (ccValue 15) <*> fmap (toRange 0 20) (ccValue 16) <*> fmap (toRange 0.1 5) (ccValue 17))
 
   -- sdfSyn rectBuf defaultOpOptions
