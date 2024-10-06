@@ -8,6 +8,7 @@
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeApplications #-}
@@ -20,6 +21,7 @@ module Types where
 
 import Control.Monad (when)
 
+import qualified Data.Map.Strict as M
 import Data.Proxy
 import Data.StateVar
 import Data.Text (Text)
@@ -317,26 +319,27 @@ type family ParamsEq p q :: Bool where
   ParamsEq (Param s t) (Param s' t) = IsEq (CmpSymbol s s')
   ParamsEq _ _ = 'False
 
--- Check if an element exists in a type-level list
 type family Elem (x :: k) (xs :: [k]) :: Bool where
     Elem x '[]       = 'False
     Elem x (y ': xs) = If (ParamsEq x y) 'True (Elem x xs)
 
--- Check if an element exists in a type-level list
 type family ElemSym (x :: Symbol) (xs :: [k]) :: Bool where
     ElemSym x '[]                = 'False
     ElemSym s (Param s' t ': xs) = If (IsEq (CmpSymbol s s')) 'True (ElemSym s xs)
 
--- Remove an element from a type-level list
 type family Remove (x :: k) (xs :: [k]) :: [k] where
     Remove x '[]       = '[]
     Remove x (y ': xs) = If (ParamsEq x y) xs (y ': Remove x xs)
 
--- Check if two lists are equal as sets (unordered comparison)
 type family EqualSet (xs :: [k]) (ys :: [k]) :: Bool where
     EqualSet '[] '[] = 'True
     EqualSet (x ': xs) ys = Elem x ys && EqualSet xs (Remove x ys)
     EqualSet _ _ = 'False
+
+type family SubSet (xs :: [k]) (ys :: [k]) :: Bool where
+    SubSet '[] ys = 'True
+    SubSet (x ': xs) ys = Elem x ys && SubSet xs (Remove x ys)
+    SubSet _ _ = 'False
 
 --------------------------------------------------------------------------------
 
@@ -356,24 +359,52 @@ instance FromTuples (a, b, c, d, e, f, g) (HList '[a, b, c, d, e, f, g]) where f
 --------------------------------------------------------------------------------
 
 class Params ps where
-  params :: HList ps -> GL.Program -> ([(Text, Text)], IO (HList ps -> IO ()))
+  params :: HList ps -> ([(Text, Text)], GL.Program -> IO [(String, GL.UniformLocation)])
+  setUniform :: HList ps -> M.Map String GL.UniformLocation -> IO ()
 
 instance Params '[] where
-  params Nil _ = ([], pure $ \_ -> pure ())
+  params Nil = ([], mempty)
+  setUniform _ _ = pure ()
 
 instance (KnownSymbol s, GLSLType t, GL.Uniform t, Params ps) => Params (Param s t ': ps) where
-  params (Param t :. ps) program = ((T.pack $ symbolVal @s Proxy, glslType @t Proxy):fields, set)
+  params (Param t :. ps) = ((T.pack $ symbolVal @s Proxy, glslType @t Proxy):fields, uniforms)
     where
-      (fields, getSet') = params ps program
+      (fields, getUniforms') = params ps
 
-      set = do
+      uniforms program = do
         loc <- GL.uniformLocation program (symbolVal @s Proxy)
         when (loc < GL.UniformLocation 0) $ error $ "params: uniform " <> symbolVal @s Proxy <> " not found"
         GL.uniform loc $= t
 
-        set' <- getSet'
+        uniforms' <- getUniforms' program
 
-        pure $ \(Param t' :. ps') -> GL.uniform loc $= t' >> set' ps'
+        pure ((symbolVal @s Proxy, loc):uniforms')
+  setUniform (Param t :. ps) uniforms
+    | Just loc <- M.lookup (symbolVal @s Proxy) uniforms = GL.uniform loc $= t
+    | otherwise = setUniform ps uniforms
+
+instance {-# OVERLAPPING #-} (KnownSymbol s, KnownNat n, Params ps) => Params (Param s (Texture n) ': ps) where
+  params (Param (Texture t) :. ps) = ((T.pack $ symbolVal @s Proxy, "sampler2D"):fields, uniforms)
+    where
+      (fields, getUniforms') = params ps
+
+      uniforms program = do
+        loc <- GL.uniformLocation program (symbolVal @s Proxy)
+        when (loc < GL.UniformLocation 0) $ error $ "params: uniform " <> symbolVal @s Proxy <> " not found"
+
+        GL.activeTexture $= GL.TextureUnit (fromInteger $ natVal $ Proxy @n)
+        GL.textureBinding GL.Texture2D $= Just t
+        GL.uniform loc $= GL.TextureUnit (fromInteger $ natVal $ Proxy @n)
+
+        uniforms' <- getUniforms' program
+
+        pure ((symbolVal @s Proxy, loc):uniforms')
+  setUniform (Param (Texture t) :. ps) uniforms
+    | Just loc <- M.lookup (symbolVal @s Proxy) uniforms = do
+        GL.activeTexture $= GL.TextureUnit (fromInteger $ natVal $ Proxy @n)
+        GL.textureBinding GL.Texture2D $= Just t
+        GL.uniform loc $= GL.TextureUnit (fromInteger $ natVal $ Proxy @n)
+    | otherwise = setUniform ps uniforms
 
 --------------------------------------------------------------------------------
 
@@ -396,37 +427,41 @@ float = id
 int :: GL.GLint -> GL.GLint
 int = id
 
-shader :: FromTuples tuples (HList params) => Params params => tuples -> IO ()
-shader = undefined
+tex :: GL.TextureObject -> Texture n
+tex = Texture
+
+data Set params
+  = Set { set :: forall subtuples subparams. FromTuples subtuples (HList subparams) => Params subparams => SubSet subparams params ~ 'True => subtuples -> IO () }
+
+shaderParams' :: FromTuples tuples (HList params) => Params params => tuples -> ([(Text, Text)], GL.Program -> IO (Set params))
+shaderParams' tuples =
+  ( fields
+  , \program -> do
+      uniforms <- M.fromList <$> initUniforms program
+      pure $ Set $ \subtuples -> setUniform (fromTuples subtuples) uniforms
+  )
+  where
+    (fields, initUniforms) = params (fromTuples tuples)
 
 param, (=:) :: Name s -> t -> Param s t
 param _ = Param
 (=:) = param
 
-field :: forall s params tuples. FromTuples tuples (HList params) => ElemSym s params ~ 'True => KnownSymbol s => tuples -> Name s -> String
+field :: forall s params. ElemSym s params ~ 'True => KnownSymbol s => HList params -> Name s -> String
 field _ _ = symbolVal @s Proxy
 
--- t1 = shader (O $ param @"lalal" (undefined :: GL.Vector2 Float))
-t2 = shader
-  ( #lalal =: vec2 5 6
-  , #was   =: vec3 5 6 7
-  , #max_iterations =: int 6
-  )
+blaaaa = do
+  t2 <- initt2 undefined
+  set t2
+    ( #lalal =: vec2 5 6
+    , #was   =: vec3 5 6 7
+    , #max_iterations =: int 6
+    )
+  where
+    (_, initt2) = shaderParams'
+      ( #lalal =: vec2 5 6
+      , #was   =: vec3 5 6 7
+      , #max_iterations =: int 6
+      , #normal_map =: tex @0 undefined
+      )
 
-defParams = 
-  ( #lalal =: vec2 5 6
-  , #was   =: vec3 5 6 7
-  , #max_iterations =: int 6
-  )
-
-f = field defParams #was
-
--- bla = param @"asDu" (6 :: Int) :. param @"asD" (6 :: Int) :. param @"lal" ("asd" :: String) :. Nil
--- 
--- bla2 = param @"lal" ("asd" :: String) :. param @"asDu" (6 :: Int) :. param @"asD" (6 :: Int) :. Nil
-
-cmp :: EqualSet as bs ~ 'True => HList as -> HList bs -> ()
-cmp = undefined
-
--- c :: ()
--- c = cmp bla bla2

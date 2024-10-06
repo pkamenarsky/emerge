@@ -25,7 +25,7 @@ import GHC.Generics (Generic)
 import Common
 import Syn
 import Syn.Run
-import Types
+import Types hiding (Name)
 
 --------------------------------------------------------------------------------
 

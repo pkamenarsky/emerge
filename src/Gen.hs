@@ -1,12 +1,17 @@
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Gen where
 
@@ -21,50 +26,42 @@ import qualified Data.Text as T
 
 import qualified Graphics.Rendering.OpenGL as GL
 
-import GHC.Generics (Generic)
-
 import Common
 import Syn
 import Syn.Run
 import Types
 
-data DefaultParams m = DefaultParams
-  { u_resolution :: P m (GL.Vector2 Float)
-  } deriving Generic
+data GenOp params = GenOp
+  { gopTex :: GL.TextureObject
+  , gopRender :: forall subtuples subparams. FromTuples subtuples (HList subparams) => Params subparams => SubSet subparams params ~ 'True => subtuples -> IO ()
+  , gopDestroy :: IO ()
+  }
 
-instance ShaderParams (DefaultParams Values)
-instance NamedShaderParams (DefaultParams Fields)
-
-genShader :: forall params. ShaderParams (params Values) => NamedShaderParams (params Fields) => RectBuffer -> OpOptions -> ([(Text, Text)] -> DefaultParams Fields -> params Fields -> Text) -> IO (Op (params Values))
-genShader rectBuf opts fragT = do
+genShader :: forall tuples params. FromTuples tuples (HList params) => Params params => RectBuffer -> OpOptions -> tuples -> ([(Text, Text)] -> HList (Param "u_resolution" (GL.Vector2 GL.GLint) ': params) -> Text) -> IO (GenOp params)
+genShader rectBuf opts tuples fragT = do
   (tex, bindFBO, destroyFBO) <- createFramebuffer opts
-  (attribs, bindShader, destroyShader) <- createShader Nothing (fragT (defUniforms <> uniforms) defnp np)
-
-  setDefaultParams <- shaderParams defaultShaderParamDeriveOpts (saProgram attribs)
-  setParams <- shaderParams defaultShaderParamDeriveOpts (saProgram attribs)
+  let (fields, initUniforms) = shaderParams' tuples
+  (attribs, bindShader, destroyShader) <- createShader Nothing (fragT fields $ param #u_resolution (GL.Vector2 (opWidth opts) (opHeight opts)) :. fromTuples tuples)
+  uniforms <- initUniforms (saProgram attribs)
 
   (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
 
-  pure $ Op
-    { opTex = tex
-    , opRender = \params -> do
+  pure $ GenOp
+    { gopTex = tex
+    , gopRender = \params -> do
         bindFBO
         bindShader
-        setDefaultParams $ DefaultParams @Values $ GL.Vector2 (fi $ opWidth opts) (fi $ opHeight opts)
-        setParams params
+        set uniforms params
         drawRect
-    , opDestroy = do
+    , gopDestroy = do
         destroyFBO
         destroyShader
         destroyDrawRect
     }
-  where
-    (defUniforms, defnp) = namedShaderParams @(DefaultParams Fields) defaultShaderParamDeriveOpts
-    (uniforms, np) = namedShaderParams @(params Fields) defaultShaderParamDeriveOpts
 
-genShaderSyn :: MonadIO m => ShaderParams (params Values) => NamedShaderParams (params Fields) => RectBuffer -> OpOptions -> ([(Text, Text)] -> DefaultParams Fields -> params Fields -> Text) -> Signal (params Values) -> Syn [Out] m a
-genShaderSyn rectBuf opts fragT params = do
-  Op tex render destroy <- unsafeNonBlockingIO $ genShader rectBuf opts fragT
+genShaderSyn :: MonadIO m => FromTuples tuples (HList params) => Params params => FromTuples subtuples (HList subparams) => Params subparams => SubSet subparams params ~ 'True => RectBuffer -> OpOptions -> tuples -> ([(Text, Text)] -> HList (Param "u_resolution" (GL.Vector2 GL.GLint) ': params) -> Text) -> Signal subtuples -> Syn [Out] m a
+genShaderSyn rectBuf opts tuples fragT params = do
+  GenOp tex render destroy <- unsafeNonBlockingIO $ genShader rectBuf opts tuples fragT
 
   finalize (liftIO destroy) $ view $ pure $ Out
     { outTex = tex
