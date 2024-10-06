@@ -1,2 +1,9 @@
+* IDEA livecoding esolang
+blend (circle 14 15) *
+      sdf * d * e * f * g
+
+star is onClick
+etc
+
 * DONE convert between `Syn v ()` and `Mealy () v`
 * DONE lift simple op `Op a` into both `Signal a -> Syn Out ()`  and `Mealy a Out`
