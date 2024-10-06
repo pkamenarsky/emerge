@@ -8,7 +8,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
@@ -37,7 +36,7 @@ data GenOp params = GenOp
   , gopDestroy :: IO ()
   }
 
-genShader :: forall tuples params. FromTuples tuples (HList params) => Params params => RectBuffer -> OpOptions -> tuples -> ([(Text, Text)] -> HList (Param "u_resolution" (GL.Vector2 GL.GLint) ': params) -> Text) -> IO (GenOp params)
+genShader :: FromTuples tuples (HList params) => Params params => RectBuffer -> OpOptions -> tuples -> ([(Text, Text)] -> HList (Param "u_resolution" (GL.Vector2 GL.GLint) ': params) -> Text) -> IO (GenOp params)
 genShader rectBuf opts tuples fragT = do
   (tex, bindFBO, destroyFBO) <- createFramebuffer opts
   let (fields, initUniforms) = shaderParams' tuples
@@ -59,11 +58,13 @@ genShader rectBuf opts tuples fragT = do
         destroyDrawRect
     }
 
-genShaderSyn :: MonadIO m => FromTuples tuples (HList params) => Params params => FromTuples subtuples (HList subparams) => Params subparams => SubSet subparams params ~ 'True => RectBuffer -> OpOptions -> tuples -> ([(Text, Text)] -> HList (Param "u_resolution" (GL.Vector2 GL.GLint) ': params) -> Text) -> Signal subtuples -> Syn [Out] m a
-genShaderSyn rectBuf opts tuples fragT params = do
+data GenSignal params = forall subtuples subparams. (FromTuples subtuples (HList subparams), Params subparams, SubSet subparams params ~ 'True) => GenSignal (Signal subtuples)
+
+genShaderSyn :: MonadIO m => FromTuples tuples (HList params) => Params params => RectBuffer -> OpOptions -> tuples -> ([(Text, Text)] -> HList (Param "u_resolution" (GL.Vector2 GL.GLint) ': params) -> Text) -> GenSignal params -> Syn [Out] m a
+genShaderSyn rectBuf opts tuples fragT (GenSignal signal) = do
   GenOp tex render destroy <- unsafeNonBlockingIO $ genShader rectBuf opts tuples fragT
 
   finalize (liftIO destroy) $ view $ pure $ Out
     { outTex = tex
-    , outRender = signalValue params >>= render
+    , outRender = signalValue signal >>= render
     }
