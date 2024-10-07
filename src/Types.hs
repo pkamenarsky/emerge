@@ -443,6 +443,7 @@ type Vec2 = GL.Vector2 Float
 type Vec3 = GL.Vector3 Float
 type Vec4 = GL.Vector4 Float
 type Color4 = GL.Color4 Float
+type GLint = GL.GLint
 
 vec2 :: Float -> Float -> Vec2
 vec2 = GL.Vector2
@@ -474,10 +475,16 @@ data Set params = Set { set :: forall subparams. Params subparams => SubSet subp
 
 data ParamFields params = ParamFields ShaderParamDeriveOpts [(Text, Text)]
 
-formatUniforms' :: ParamFields params -> Text
-formatUniforms' (ParamFields opts uniforms) = T.intercalate "\n"
-  [ "uniform " <> ut <> " " <> (T.pack $ spFieldLabelModifier opts $ T.unpack un) <> ";"
+paramUniforms :: ParamFields params -> [(Text, Text)]
+paramUniforms (ParamFields opts uniforms) =
+  [ (ut, T.pack $ spFieldLabelModifier opts $ T.unpack un)
   | (ut, un) <- uniforms
+  ]
+
+formatParamUniforms :: ParamFields params -> Text
+formatParamUniforms paramFields = T.intercalate "\n"
+  [ "uniform " <> ut <> " " <> un <> ";"
+  | (ut, un) <- paramUniforms paramFields
   ]
 
 shaderParams' :: Params params => ShaderParamDeriveOpts -> HList params -> (ParamFields params, GL.Program -> IO (Set params))
@@ -502,5 +509,5 @@ infixr 0 =:
 instance (KnownSymbol s, ElemSym s params ~ 'True) => IsLabel s (ParamFields params -> String) where
   fromLabel = \(ParamFields opts _) -> spFieldLabelModifier opts $ symbolVal @s Proxy
 
-field :: forall s params. ElemSym s params ~ 'True => KnownSymbol s => ParamFields params -> Name s -> String
+field :: forall s params. KnownSymbol s => ElemSym s params ~ 'True => ParamFields params -> Name s -> String
 field (ParamFields opts _) _ = spFieldLabelModifier opts $ symbolVal @s Proxy

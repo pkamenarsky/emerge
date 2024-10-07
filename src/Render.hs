@@ -177,7 +177,7 @@ uniform vec2 cpCenter;
 uniform float cpRadius;
 
 void main() {
-  vec2 uv = gl_FragCoord.xy / vec2(#{opWidth opts}, #{opHeight opts});
+  vec2 uv = gl_FragCoord.xy / #{resVec2 opts};
 
   float dist = distance(uv, cpCenter);
   float delta = fwidth(dist);
@@ -205,25 +205,25 @@ circleSyn'
        , Param "center" (GL.Vector2 Float)
        ]
   -> Syn [Out] m a
-circleSyn' rectBuffer opts = genShaderSyn rectBuffer opts def fragT
+circleSyn' rectBuffer opts = genShaderSyn rectBuffer opts defaultShaderParamDeriveOpts def fragT
   where
     def =
       ( #radius =: float 0.5
       , #color  =: color4 1 1 1 1
       , #center =: vec2 0.5 0.5
       )
-    fragT uniforms params = [i|
+    fragT udefs = [i|
 
-#{formatUniforms uniforms}
+#{formatParamUniforms udefs}
 
 void main() {
-  vec2 uv = gl_FragCoord.xy / #{field params #u_resolution}.xy;
+  vec2 uv = gl_FragCoord.xy / #{resVec2 opts}.xy;
 
-  float dist = distance(uv, #{field params #center});
+  float dist = distance(uv, #{field udefs #center});
   float delta = fwidth(dist);
-  float alpha = smoothstep(#{field params #radius} - delta, #{field params #radius}, dist);
+  float alpha = smoothstep(#{field udefs #radius} - delta, #{field udefs #radius}, dist);
 
-  gl_FragColor = #{field params #color} * (1. - alpha);
+  gl_FragColor = #{field udefs #color} * (1. - alpha);
 } |]
 
 -- Ops (blend) -----------------------------------------------------------------
@@ -319,19 +319,19 @@ xform :: MonadIO m => RectBuffer -> OpOptions -> (BL.ByteString -> IO B.ByteStri
 xform rectBuf opts io s = do
   (tex', bindFBO, bindShader, uniforms) <- unsafeNonBlockingIO $ do
     (tex', bindFBO, destroyFBO) <- createFramebuffer opts
-    let (fields, initUniforms) = shaderParams' $ fromTuples $ O $ #tex =: tex @0 tex'
-    (attribs, bindShader, destroyShader) <- createShader Nothing (fragT fields)
+    let (udefs, getUniforms) = shaderParams'' defaultShaderParamDeriveOpts $ O $ #tex =: texture @0 tex'
+    (attribs, bindShader, destroyShader) <- createShader Nothing (fragT udefs)
 
     bindShader
-    uniforms <- initUniforms (saProgram attribs)
+    uniforms <- getUniforms (saProgram attribs)
 
     pure (tex', bindFBO, bindShader, uniforms)
   
   -- TODO finalize
   finalize (pure ()) $ mapView (f tex' bindFBO bindShader uniforms) s
   where
-    fragT fields = [i|
-#{formatUniforms fields}
+    fragT udefs = [i|
+#{formatParamUniforms udefs}
 
 void main() {
   vec2 uv = gl_FragCoord.xy / vec2(#{opWidth opts}, #{opHeight opts});
@@ -349,7 +349,7 @@ void main() {
                  image <- io bs
                  bindFBO
                  bindShader
-                 set uniforms $ fromTuples $ O $ #tex =: tex @0 tex'
+                 set uniforms $ fromTuples $ O $ #tex =: texture @0 tex'
                  writeImageToTexture tex' image
                Left e -> error e
          }

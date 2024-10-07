@@ -59,20 +59,16 @@ postImage manager png = do
 
 --------------------------------------------------------------------------------
 
-type Shader0Params = Params2
-  Float -- 10.0
-  Float -- 0.5
-
 gptShader0 :: MonadIO m => RectBuffer -> OpOptions -> GenSignal [Param "p0" Float, Param "p1" Float] -> Syn [Out] m a
-gptShader0 rectBuf opts = genShaderSyn rectBuf opts def fragT
+gptShader0 rectBuf opts = genShaderSyn rectBuf opts defaultShaderParamDeriveOpts def fragT
   where
     def =
       ( #p0 =: float 10
       , #p1 =: float 0.5
       )
 
-    fragT uniforms params = [i|
-#{formatUniforms uniforms}
+    fragT udefs = [i|
+#{formatParamUniforms udefs}
 
 const int MAX_STEPS = 100;
 const float MIN_DIST = 0.001;
@@ -85,7 +81,7 @@ float gyroid(vec3 p) {
 
 // Function to get distance to the object
 float map(vec3 p) {
-    return gyroid(p * #{field params #p0}) * #{field params #p1} + length(p) - 1.0;  // Combine with sphere for variation
+    return gyroid(p * #{field udefs #p0}) * #{field udefs #p1} + length(p) - 1.0;  // Combine with sphere for variation
 }
 
 // Raymarching function
@@ -122,7 +118,7 @@ float getLight(vec3 p) {
 }
 
 void main() {
-    vec2 uv = (gl_FragCoord.xy - 0.5 * #{field params #u_resolution}.xy) / #{field params #u_resolution}.y;
+    vec2 uv = (gl_FragCoord.xy - 0.5 * #{resVec2 opts}.xy) / #{resVec2 opts}.y;
 
     vec3 ro = vec3(0.0, 0.0, 5.0);
     vec3 rd = normalize(vec3(uv, -1.5));
@@ -142,73 +138,6 @@ void main() {
 
    gl_FragColor = vec4(col, 1.0);
 } |]
-
-{-
-
-type Shader1Params = Params4
-  GL.GLint -- 16.0
-  Float -- 0.05
-  Float -- 10.0
-  Float -- 0.3
-
-gptShader1 :: MonadIO m => RectBuffer -> OpOptions -> Signal (Shader1Params Values) -> Syn [Out] m a
-gptShader1 rectBuf opts = genShaderSyn rectBuf opts fragT
-  where
-    fragT uniforms _ (Params4 p0 p1 p2 p3) = [i|
-\#ifdef GL_ES
-precision mediump float;
-\#endif
-
-#{formatUniforms uniforms}
-
-// Function to create circular floral pattern
-float circle(vec2 uv, vec2 pos, float radius) {
-    return smoothstep(radius, radius + 0.01, length(uv - pos));
-}
-
-// Function to create radial petal-like pattern
-float petalPattern(vec2 uv, vec2 pos, float radius, int petalCount) {
-    float angle = atan(uv.y - pos.y, uv.x - pos.x);
-    float petal = sin(float(petalCount) * angle) * 0.5 + 0.5;
-    return circle(uv, pos, radius) * petal;
-}
-
-// Wave pattern function
-float wavePattern(vec2 uv, float frequency, float amplitude) {
-    float u_time = 1.0;
-    return sin(uv.y * frequency + u_time) * amplitude;
-}
-
-void main() {
-    vec2 uv = gl_FragCoord.xy / u_resolution.xy;
-    uv -= 0.5;  // Centering UV coordinates
-    uv.x *= u_resolution.x / u_resolution.y;
-
-    // Create background color
-    vec3 color = vec3(0.1, 0.1, 0.1);
-
-    // Create the wave-like pattern
-    float wave = wavePattern(uv, #{p2}, #{p3});
-
-    // Create the floral pattern
-    float floral = 0.0;
-    int petalCount = #{p0};
-    float radius = #{p1};
-    vec2 gridPos = vec2(mod(uv.x * 5.0, 1.0), mod(uv.y * 5.0, 1.0));
-
-    for (float x = -1.0; x <= 1.0; x += 1.0) {
-        for (float y = -1.0; y <= 1.0; y += 1.0) {
-            floral += petalPattern(uv, vec2(x, y) + gridPos, radius, petalCount);
-        }
-    }
-
-    // Combine the wave and floral patterns
-    color += vec3(floral * wave);
-
-    gl_FragColor = vec4(color, 1.0);
-} |]
-
--}
 
 --------------------------------------------------------------------------------
 
@@ -252,8 +181,8 @@ scene manager rectBuf mouseClick mousePos ccMap = do
 
   where
     -- traceParams = fmap (\c -> defaultTraceParams { tpMaxIterations = fi c, tpFresnelBase = 1, tpFresnelExp = 2 }) cc
-    traceParams :: Signal (TraceParams Values)
-    traceParams = TraceParams <$> ccValue 14 <*> fmap (toRange 0.5 2) (ccValue 15) <*> fmap (toRange 1 5) (ccValue 16) <*> fmap (toRange 0 1) (ccValue 17)
+    -- traceParams :: Signal (TraceParams Values)
+    -- traceParams = TraceParams <$> ccValue 14 <*> fmap (toRange 0.5 2) (ccValue 15) <*> fmap (toRange 1 5) (ccValue 16) <*> fmap (toRange 0 1) (ccValue 17)
 
     ranged :: Float -> Float -> Float -> Float -> Float -> Float
     ranged a b c d x = a + (b - a) * ((x - c) / (d - c))
@@ -267,11 +196,11 @@ scene manager rectBuf mouseClick mousePos ccMap = do
     ccValue :: Num a => Word8 -> Signal a
     ccValue ccId = fmap fromIntegral (ccMap <*> pure ccId)
 
-    rotateX :: Signal (RotateParams Values)
-    rotateX = fmap (\(x, _) -> RotateParams (GL.Vector3 0 1 0) (tf $ x / (-100))) mousePos
+    -- rotateX :: Signal (RotateParams Values)
+    -- rotateX = fmap (\(x, _) -> RotateParams (GL.Vector3 0 1 0) (tf $ x / (-100))) mousePos
 
-    rotateY :: Signal (RotateParams Values)
-    rotateY = fmap (\(_, y) -> RotateParams (GL.Vector3 1 0 0) (tf $ y / 100)) mousePos
+    -- rotateY :: Signal (RotateParams Values)
+    -- rotateY = fmap (\(_, y) -> RotateParams (GL.Vector3 1 0 0) (tf $ y / 100)) mousePos
 
     fi = fromIntegral
     tf = realToFrac

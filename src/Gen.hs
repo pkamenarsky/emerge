@@ -32,16 +32,25 @@ import Types
 
 data GenOp params = GenOp
   { gopTex :: GL.TextureObject
-  , gopRender :: forall subparams. Params subparams => SubSet subparams (Param "u_resolution" (GL.Vector2 Float) ': params) ~ 'True => HList subparams -> IO ()
+  , gopRender :: forall subparams. Params subparams => SubSet subparams params ~ 'True => HList subparams -> IO ()
   , gopDestroy :: IO ()
   }
 
-genShader :: FromTuples tuples (HList params) => Params params => RectBuffer -> OpOptions -> tuples -> ([(Text, Text)] -> HList (Param "u_resolution" (GL.Vector2 Float) ': params) -> Text) -> IO (GenOp params)
-genShader rectBuf opts tuples fragT = do
+genShader
+  :: FromTuples tuples (HList params)
+  => Params params
+
+  => RectBuffer
+  -> OpOptions
+  -> ShaderParamDeriveOpts
+  -> tuples
+  -> (ParamFields params -> Text)
+  -> IO (GenOp params)
+genShader rectBuf opts deriveOpts tuples fragT = do
   (tex, bindFBO, destroyFBO) <- createFramebuffer opts
-  let params = param #u_resolution (GL.Vector2 (fromIntegral $ opWidth opts) (fromIntegral $ opHeight opts)) :. fromTuples tuples
-  let (udefs, initUniforms) = shaderParams' params
-  (attribs, bindShader, destroyShader) <- createShader Nothing (fragT udefs params)
+  let params = fromTuples tuples
+  let (udefs, initUniforms) = shaderParams' deriveOpts params
+  (attribs, bindShader, destroyShader) <- createShader Nothing (fragT udefs)
 
   bindShader
   uniforms <- initUniforms (saProgram attribs)
@@ -61,7 +70,6 @@ genShader rectBuf opts tuples fragT = do
         destroyDrawRect
     }
 
--- data GenSignal params = forall subtuples subparams subsigparams. (FromTuples subtuples (HList subsigparams), SeqParams subsigparams subparams, Params subparams, SubSet subparams (Param "u_resolution" (GL.Vector2 Float) ': params) ~ 'True) => GenSignal subtuples
 data GenSignal params = forall subtuples subparams subsigparams. (FromTuples subtuples (HList subsigparams), SeqParams subsigparams subparams, Params subparams, SubSet subparams params ~ 'True) => GenSignal subtuples
 
 genShaderSyn
@@ -70,12 +78,13 @@ genShaderSyn
   => Params params
   => RectBuffer
   -> OpOptions
+  -> ShaderParamDeriveOpts
   -> tuples
-  -> ([(Text, Text)] -> HList (Param "u_resolution" (GL.Vector2 Float) ': params) -> Text)
-  -> GenSignal (Param "u_resolution" (GL.Vector2 Float) ': params)
+  -> (ParamFields params -> Text)
+  -> GenSignal params
   -> Syn [Out] m a
-genShaderSyn rectBuf opts tuples fragT (GenSignal signal) = do
-  GenOp tex render destroy <- unsafeNonBlockingIO $ genShader rectBuf opts tuples fragT
+genShaderSyn rectBuf opts deriveOpts tuples fragT (GenSignal signal) = do
+  GenOp tex render destroy <- unsafeNonBlockingIO $ genShader rectBuf opts deriveOpts tuples fragT
 
   finalize (liftIO destroy) $ view $ pure $ Out
     { outTex = tex

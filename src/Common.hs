@@ -75,6 +75,9 @@ data OpOptions = OpOptions
   , opClamp :: GL.Clamping
   }
 
+resVec2 :: OpOptions -> Text
+resVec2 opts = [i|vec2 (#{opWidth opts}, #{opHeight opts})|];
+
 defaultOpOptions :: OpOptions
 defaultOpOptions = OpOptions
   { opWidth = 1024
