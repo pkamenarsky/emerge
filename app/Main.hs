@@ -148,16 +148,21 @@ scene manager rectBuf mouseClick mousePos ccMap = do
   -- asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.15), on mouseClick ]
 
   -- xform rectBuf defaultOpOptions (postImage manager) $ asum
-  -- asum
-  --   [ void $ circleSyn' rectBuf defaultOpOptions $ GenSignal
-  --       ( #radius =: fmap (\(x, y) -> tf (x / 1024)) mousePos
-  --       , #color  =: (pure (color4 1 1 1 1) :: Signal (GL.Color4 Float))
-  --       )
-  --       -- ( #radius =: cc 14 0 0.5
-  --       -- , #color  =: color4 <$> cc 15 0 1 <*> cc 16 0 1 <*> cc 17 0 1 <*> pure 1
-  --       -- )
-  --   , on mouseClick
-  --   ]
+  let b1 = 
+        void $ circleSyn rectBuf defaultOpOptions $ GenSignal $ O
+          ( #radius =: fmap (\(x, y) -> tf (x / 1024)) mousePos
+          -- ( #radius =: cc 14 0 0.5
+          -- , #color  =: color4 <$> cc 15 0 1 <*> cc 16 0 1 <*> cc 17 0 1 <*> pure 1
+          -- , #color  =: (pure (color4 1 1 1 1) :: Signal (GL.Color4 Float))
+          )
+      b2 = 
+        void $ circleSyn rectBuf defaultOpOptions $ GenSignal $ O
+          ( #radius =: fmap (\(x, y) -> tf (y / 1024)) mousePos
+          -- ( #radius =: cc 14 0 0.5
+          -- , #color  =: color4 <$> cc 15 0 1 <*> cc 16 0 1 <*> cc 17 0 1 <*> pure 1
+          -- , #color  =: (pure (color4 1 1 1 1) :: Signal (GL.Color4 Float))
+          )
+  asum [ blendSyn rectBuf defaultOpOptions defaultBlendOptions (GenSignal ()) b1 b2, on mouseClick ]
 
   -- gptShader0 rectBuf defaultOpOptions $ GenSignal
   --   ( #p0 =: cc 14 1 10
@@ -208,10 +213,10 @@ scene manager rectBuf mouseClick mousePos ccMap = do
     fillParams = flip fmap mousePos $ \(mx, my) -> FillParams
       (GL.Color4 (tf $ mx / 1024.0) (tf $ my / 1024.0) 1 1) 
 
-    circleParams radius = flip fmap mousePos $ \(mx, my) -> CircleParams
-      (GL.Color4 (tf $ mx / 1024.0) (tf $ my / 1024.0) 1 1) 
-      (GL.Vertex2 (tf $ mx / 1024.0) (1 - tf (my / 1024.0)))
-      radius
+    -- circleParams radius = flip fmap mousePos $ \(mx, my) -> CircleParams
+    --   (GL.Color4 (tf $ mx / 1024.0) (tf $ my / 1024.0) 1 1) 
+    --   (GL.Vertex2 (tf $ mx / 1024.0) (1 - tf (my / 1024.0)))
+    --   radius
 
 main :: IO ()
 main = do

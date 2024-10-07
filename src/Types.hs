@@ -46,7 +46,7 @@ newtype Time = Time Float
 
 --------------------------------------------------------------------------------
 
-newtype Texture (n :: Nat) = Texture GL.TextureObject
+newtype Texture (n :: Nat) = Texture (Maybe GL.TextureObject)
 
 data ShaderParamDeriveOpts = ShaderParamDeriveOpts
   { spFieldLabelModifier :: String -> String
@@ -96,7 +96,7 @@ instance {-# OVERLAPPING #-} (KnownSymbol name, KnownNat n) => GShaderParams (M1
 
     pure $ \(M1 (K1 (Texture tex))) -> do
       GL.activeTexture $= GL.TextureUnit (fromInteger $ natVal $ Proxy @n)
-      GL.textureBinding GL.Texture2D $= Just tex
+      GL.textureBinding GL.Texture2D $= tex
       GL.uniform loc $= GL.TextureUnit (fromInteger $ natVal $ Proxy @n)
     where
       n = spFieldLabelModifier opts $ symbolVal $ Proxy @name
@@ -351,6 +351,7 @@ newtype O a = O a
 class FromTuples tuples hlist | tuples -> hlist where
   fromTuples :: tuples -> hlist
 
+instance FromTuples () (HList '[]) where fromTuples () = Nil
 instance FromTuples (O a) (HList '[a]) where fromTuples (O a) = a :. Nil
 instance FromTuples (a, b) (HList '[a, b]) where fromTuples (a, b) = a :. b :. Nil
 instance FromTuples (a, b, c) (HList '[a, b, c]) where fromTuples (a, b, c) = a :. b :. c :. Nil
@@ -400,7 +401,7 @@ instance {-# OVERLAPPING #-} (KnownSymbol s, KnownNat n, Params ps) => Params (P
         when (loc < GL.UniformLocation 0) $ error $ "params: uniform " <> symbolVal @s Proxy <> " not found"
 
         GL.activeTexture $= GL.TextureUnit (fromInteger $ natVal $ Proxy @n)
-        GL.textureBinding GL.Texture2D $= Just t
+        GL.textureBinding GL.Texture2D $= t
         GL.uniform loc $= GL.TextureUnit (fromInteger $ natVal $ Proxy @n)
 
         uniforms' <- getUniforms' program
@@ -410,7 +411,7 @@ instance {-# OVERLAPPING #-} (KnownSymbol s, KnownNat n, Params ps) => Params (P
   setUniform (Param (Texture t) :. ps) uniforms
     | Just loc <- M.lookup (symbolVal @s Proxy) uniforms = do
         GL.activeTexture $= GL.TextureUnit (fromInteger $ natVal $ Proxy @n)
-        GL.textureBinding GL.Texture2D $= Just t
+        GL.textureBinding GL.Texture2D $= t
         GL.uniform loc $= GL.TextureUnit (fromInteger $ natVal $ Proxy @n)
         setUniform ps uniforms
 
@@ -468,7 +469,7 @@ float = id
 int :: GL.GLint -> GL.GLint
 int = id
 
-texture :: GL.TextureObject -> Texture n
+texture :: Maybe GL.TextureObject -> Texture n
 texture = Texture
 
 data Set params = Set { set :: forall subparams. Params subparams => SubSet subparams params ~ 'True => HList subparams -> IO () }
