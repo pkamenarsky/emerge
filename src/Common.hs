@@ -7,12 +7,19 @@
 module Common where
 
 import Control.Applicative
+import Control.Concurrent
 import Control.Concurrent.MVar
 import Control.Monad
 import Control.Monad.IO.Class
 import qualified Control.Monad.Trans.State as ST
 
+import Codec.Picture
+import Codec.Picture.Types
+
+import qualified Data.Array.IO as A
+import qualified Data.Array.Storable as A
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as BL
 import Data.ByteString (ByteString)
 import Data.Foldable
 import Data.IORef
@@ -26,7 +33,9 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
 import Data.Text (Text)
+import qualified Data.Vector.Storable as V
 
+import Foreign.ForeignPtr (newForeignPtr_)
 import Foreign.Ptr
 import Foreign.C.Types
 import Foreign.Marshal.Array
@@ -162,6 +171,57 @@ createFramebuffer opts = do
     destroy fbo tex = do
       deleteObjectName fbo
       deleteObjectName tex
+
+allocArray :: Int -> Int -> IO (A.StorableArray Int Word8)
+allocArray width height = A.newArray (0, width * height * 4) 0 :: IO (A.StorableArray Int Word8)
+
+readImageFromFramebuffer :: GL.FramebufferObject -> A.StorableArray Int Word8 -> Int -> Int -> IO (Either String BL.ByteString)
+readImageFromFramebuffer fbo pixels width height = do
+  GL.bindFramebuffer GL.Framebuffer $= fbo
+  GL.readBuffer $= GL.FBOColorAttachment 0
+
+  image <- A.withStorableArray pixels $ \ptr -> do
+    GL.readPixels (GL.Position 0 0) (GL.Size (fromIntegral width) (fromIntegral height)) (GL.PixelData GL.RGBA GL.UnsignedByte ptr)
+    fptr <- newForeignPtr_ ptr
+    pure $ Image width height $ V.unsafeFromForeignPtr fptr 0 (width * height * 4)
+  
+  pure $ encodeDynamicPng $ ImageRGBA8 image
+
+readImageFromTexture :: GL.TextureObject -> A.StorableArray Int Word8 -> Int -> Int -> IO (Either String BL.ByteString)
+readImageFromTexture tex pixels width height = do
+  GL.textureBinding GL.Texture2D $= Just tex
+
+  image <- A.withStorableArray pixels $ \ptr -> do
+    GL.getTexImage GL.Texture2D 0 (GL.PixelData GL.RGBA GL.UnsignedByte ptr)
+    fptr <- newForeignPtr_ ptr
+    pure $ Image width height $ V.unsafeFromForeignPtr fptr 0 (width * height * 4)
+  
+  pure $ encodeDynamicPng $ ImageRGBA8 image
+
+readImageFromTextureAlloc :: GL.TextureObject -> IO (Either String BL.ByteString)
+readImageFromTextureAlloc tex = do
+  GL.textureBinding GL.Texture2D $= Just tex
+  GL.TextureSize2D width height <- GL.textureSize2D GL.Texture2D 0
+  let w = fromIntegral width
+      h = fromIntegral height
+  pixels <- allocArray w h
+
+  A.withStorableArray pixels $ \ptr -> do
+    GL.getTexImage GL.Texture2D 0 (GL.PixelData GL.RGBA GL.UnsignedByte ptr)
+    fptr <- newForeignPtr_ ptr
+    pure $ encodeDynamicPng $ ImageRGBA8 $ Image w h $ V.unsafeFromForeignPtr fptr 0 (w * h * 4)
+
+writeImageToTexture :: GL.TextureObject -> B.ByteString -> IO ()
+writeImageToTexture tex pngData = case convertRGBA8 <$> decodePng pngData of
+  Left err -> error err
+  Right rgba -> do
+    GL.textureBinding GL.Texture2D $= Just tex
+    
+    V.unsafeWith (imageData rgba) $ \ptr -> do
+      GL.texImage2D GL.Texture2D GL.NoProxy 0 GL.RGBA8
+        (GL.TextureSize2D (fromIntegral $ imageWidth rgba) (fromIntegral $ imageHeight rgba))
+        0
+        (GL.PixelData GL.RGBA GL.UnsignedByte ptr)
 
 -- TODO: embed basePath directory in binary using TH
 resolveGLSL :: T.Text -> IO Text

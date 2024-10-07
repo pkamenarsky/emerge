@@ -5,17 +5,20 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Render where
 
 import Control.Applicative
+import Control.Concurrent
 import Control.Concurrent.MVar
 import Control.Monad
 import Control.Monad.IO.Class
 import qualified Control.Monad.Trans.State as ST
 
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as BL
 import Data.ByteString (ByteString)
 import Data.Foldable
 import Data.IORef
@@ -309,3 +312,46 @@ blendSyn rectBuf opts params a b = do
         }
 
   finalize (liftIO destroy) $ mapView out $ asum [ a, b ]
+
+--------------------------------------------------------------------------------
+
+xform :: MonadIO m => RectBuffer -> OpOptions -> (BL.ByteString -> IO B.ByteString) -> Syn [Out] m a -> Syn [Out] m a
+xform rectBuf opts io s = do
+  (tex', bindFBO, bindShader, uniforms) <- unsafeNonBlockingIO $ do
+    (tex', bindFBO, destroyFBO) <- createFramebuffer opts
+    let (fields, initUniforms) = shaderParams' $ fromTuples $ O $ #tex =: tex @0 tex'
+    (attribs, bindShader, destroyShader) <- createShader Nothing (fragT fields)
+
+    bindShader
+    uniforms <- initUniforms (saProgram attribs)
+
+    pure (tex', bindFBO, bindShader, uniforms)
+  
+  -- TODO finalize
+  finalize (pure ()) $ mapView (f tex' bindFBO bindShader uniforms) s
+  where
+    fragT fields = [i|
+#{formatUniforms fields}
+
+void main() {
+  vec2 uv = gl_FragCoord.xy / vec2(#{opWidth opts}, #{opHeight opts});
+  gl_FragColor = texture2D(tex, uv);
+} |]
+
+    f tex' bindFBO bindShader uniforms [out] =
+      [ Out
+         { outTex = tex'
+         , outRender = do
+             outRender out
+             img <- readImageFromTextureAlloc (outTex out)
+             case img of
+               Right bs -> do
+                 image <- io bs
+                 bindFBO
+                 bindShader
+                 set uniforms $ fromTuples $ O $ #tex =: tex @0 tex'
+                 writeImageToTexture tex' image
+               Left e -> error e
+         }
+      ]
+          

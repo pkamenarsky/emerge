@@ -1,7 +1,9 @@
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TypeApplications #-}
@@ -23,6 +25,7 @@ import qualified Graphics.Rendering.OpenGL as GL
 import GHC.Generics (Generic)
 
 import Common
+import Gen
 import Syn
 import Syn.Run
 import Types hiding (Name)
@@ -63,23 +66,25 @@ data BoxParams m = BoxParams
 instance ShaderParams (BoxParams Values)
 instance NamedShaderParams (BoxParams Fields)
 
-box :: Signal (BoxParams Values) -> SDF
-box params = SDF $ \pos -> do
+box :: GenSignal '[Param "dimensions" Vec3] -> SDF
+box (GenSignal params) = SDF $ \pos -> do
   prefix <- name <$> genName
   out <- genName
+  let def = fromTuples $ O $ #dimensions =: vec3 0.5 0.5 0.5
+  let (udefs, getUniforms) = shaderParams' def
 
-  let opts = defaultShaderParamDeriveOpts
-        { spFieldLabelModifier = (T.unpack prefix <>)
-        }
-      (uniforms, np) = namedShaderParams @(BoxParams Fields) opts
-
+  -- let opts = defaultShaderParamDeriveOpts
+  --       { spFieldLabelModifier = (T.unpack prefix <>)
+  --       }
+  --     (uniforms, np) = namedShaderParams @(BoxParams Fields) opts
   W.tell $ pure $ SDFDef
     { sdfIncludes = ["assets/lygia/sdf/boxSDF.glsl"]
-    , sdfUniforms = uniforms
-    , sdfDecls = [("float", out, [i|boxSDF(#{name pos}, #{bpDimensions np})|])]
+    , sdfUniforms = udefs
+    , sdfDecls = [("float", out, [i|boxSDF(#{name pos}, #{field def #dimensions})|])]
     , sdfSetParams = \program -> do
-        set <- flip shaderParams program opts
-        pure $ signalValue params >>= set
+        uniforms <- getUniforms program
+        -- set <- flip shaderParams program opts
+        pure $ seqParams (fromTuples params) >>= set uniforms
     }
 
   pure out

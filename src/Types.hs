@@ -439,19 +439,24 @@ instance (s ~ t) => IsLabel s (Name t) where
 
 --------------------------------------------------------------------------------
 
-vec2 :: Float -> Float -> GL.Vector2 Float
+type Vec2 = GL.Vector2 Float
+type Vec3 = GL.Vector3 Float
+type Vec4 = GL.Vector4 Float
+type Color4 = GL.Color4 Float
+
+vec2 :: Float -> Float -> Vec2
 vec2 = GL.Vector2
 
-vec3 :: Float -> Float -> Float -> GL.Vector3 Float
+vec3 :: Float -> Float -> Float -> Vec3
 vec3 = GL.Vector3
 
-vec4 :: Float -> Float -> Float -> Float -> GL.Vector4 Float
+vec4 :: Float -> Float -> Float -> Float -> Vec4
 vec4 = GL.Vector4
 
-color4 :: Float -> Float -> Float -> Float -> GL.Color4 Float
+color4 :: Float -> Float -> Float -> Float -> Color4
 color4 = GL.Color4
 
-rgba :: Word8 -> Word8 -> Word8 -> Word8 -> GL.Color4 Float
+rgba :: Word8 -> Word8 -> Word8 -> Word8 -> Color4
 rgba r g b a = GL.Color4 (c r) (c g) (c b) (c a)
   where
     c x = fromIntegral x / 255.0
@@ -462,14 +467,22 @@ float = id
 int :: GL.GLint -> GL.GLint
 int = id
 
-tex :: GL.TextureObject -> Texture n
-tex = Texture
+texture :: GL.TextureObject -> Texture n
+texture = Texture
 
 data Set params = Set { set :: forall subparams. Params subparams => SubSet subparams params ~ 'True => HList subparams -> IO () }
 
-shaderParams' :: Params params => HList params -> ([(Text, Text)], GL.Program -> IO (Set params))
-shaderParams' params =
-  ( fields
+data ParamFields params = ParamFields ShaderParamDeriveOpts [(Text, Text)]
+
+formatUniforms' :: ParamFields params -> Text
+formatUniforms' (ParamFields opts uniforms) = T.intercalate "\n"
+  [ "uniform " <> ut <> " " <> (T.pack $ spFieldLabelModifier opts $ T.unpack un) <> ";"
+  | (ut, un) <- uniforms
+  ]
+
+shaderParams' :: Params params => ShaderParamDeriveOpts -> HList params -> (ParamFields params, GL.Program -> IO (Set params))
+shaderParams' opts params =
+  ( ParamFields opts fields
   , \program -> do
       uniforms <- M.fromList <$> initUniforms program
       pure $ Set $ \subtuples -> setUniform subtuples uniforms
@@ -477,11 +490,17 @@ shaderParams' params =
   where
     (fields, initUniforms) = initParams params
 
+shaderParams'' :: FromTuples tuples (HList params) => Params params => ShaderParamDeriveOpts -> tuples -> (ParamFields params, GL.Program -> IO (Set params))
+shaderParams'' opts = shaderParams' opts . fromTuples
+
 param, (=:) :: Name s -> t -> Param s t
 param _ = Param
 
 (=:) = param
 infixr 0 =:
 
-field :: forall s params. ElemSym s params ~ 'True => KnownSymbol s => HList params -> Name s -> String
-field _ _ = symbolVal @s Proxy
+instance (KnownSymbol s, ElemSym s params ~ 'True) => IsLabel s (ParamFields params -> String) where
+  fromLabel = \(ParamFields opts _) -> spFieldLabelModifier opts $ symbolVal @s Proxy
+
+field :: forall s params. ElemSym s params ~ 'True => KnownSymbol s => ParamFields params -> Name s -> String
+field (ParamFields opts _) _ = spFieldLabelModifier opts $ symbolVal @s Proxy

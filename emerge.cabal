@@ -42,16 +42,20 @@ library
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
       GLFW-b
+    , JuicyPixels
     , ObjectName
     , OpenGL
     , RtMidi
     , StateVar
+    , array
     , base >=4.7 && <5
     , bytestring
     , containers
     , filepath
     , free
+    , http-client
     , machines
+    , primitive
     , stm
     , string-interpolate
     , text
@@ -71,17 +75,21 @@ executable emerge-exe
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       GLFW-b
+    , JuicyPixels
     , ObjectName
     , OpenGL
     , RtMidi
     , StateVar
+    , array
     , base >=4.7 && <5
     , bytestring
     , containers
     , emerge
     , filepath
     , free
+    , http-client
     , machines
+    , primitive
     , stm
     , string-interpolate
     , text
@@ -102,17 +110,21 @@ test-suite emerge-test
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       GLFW-b
+    , JuicyPixels
     , ObjectName
     , OpenGL
     , RtMidi
     , StateVar
+    , array
     , base >=4.7 && <5
     , bytestring
     , containers
     , emerge
     , filepath
     , free
+    , http-client
     , machines
+    , primitive
     , stm
     , string-interpolate
     , text

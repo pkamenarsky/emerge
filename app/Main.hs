@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedLabels #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE QuasiQuotes #-}
 
@@ -11,6 +12,8 @@ import Control.Exception
 import Control.Monad (void)
 import Control.Monad.IO.Class
 
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as BL
 import Data.Foldable
 import Data.IORef
 import Data.Maybe (fromMaybe)
@@ -22,6 +25,9 @@ import qualified Data.Vector.Storable as V
 
 import qualified Graphics.Rendering.OpenGL as GL
 import qualified Graphics.UI.GLFW as GLFW
+
+import Network.HTTP.Client
+-- import Network.HTTP.Client.MultipartFormData
 
 import Common
 import Gen
@@ -38,6 +44,18 @@ import GHC.Word
 import qualified Sound.RtMidi as RT
 
 import Debug.Trace (traceIO)
+
+postImage :: Manager -> BL.ByteString -> IO B.ByteString
+postImage manager png = do
+  initialRequest <- parseRequest "http://localhost:5000/upload"
+  let request = initialRequest
+        { method = "POST"
+        , requestBody = RequestBodyLBS png
+        , requestHeaders = [("Content-Type", "image/png")]
+        }
+
+  response <- httpLbs request manager
+  pure $ BL.toStrict $ responseBody response
 
 --------------------------------------------------------------------------------
 
@@ -194,22 +212,33 @@ void main() {
 
 --------------------------------------------------------------------------------
 
-scene :: MonadIO m => RectBuffer -> Event () -> Signal (Double, Double) -> Signal (Word8 -> Word8) -> Syn [Out] m a
-scene rectBuf mouseClick mousePos ccMap = do
+scene :: MonadIO m => Manager -> RectBuffer -> Event () -> Signal (Double, Double) -> Signal (Word8 -> Word8) -> Syn [Out] m a
+scene manager rectBuf mouseClick mousePos ccMap = do
   -- asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.05), on mouseClick ]
   -- asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.1), on mouseClick ]
   -- asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.15), on mouseClick ]
-  asum
-    [ void $ circleSyn' rectBuf defaultOpOptions $ GenSignal
-        ( #radius =: cc 14 0 0.5
-        , #color  =: color4 <$> cc 15 0 1 <*> cc 16 0 1 <*> cc 17 0 1 <*> pure 1
-        )
-    , on mouseClick
-    ]
 
+  -- xform rectBuf defaultOpOptions (postImage manager) $ asum
+  -- asum
+  --   [ void $ circleSyn' rectBuf defaultOpOptions $ GenSignal
+  --       ( #radius =: fmap (\(x, y) -> tf (x / 1024)) mousePos
+  --       , #color  =: (pure (color4 1 1 1 1) :: Signal (GL.Color4 Float))
+  --       )
+  --       -- ( #radius =: cc 14 0 0.5
+  --       -- , #color  =: color4 <$> cc 15 0 1 <*> cc 16 0 1 <*> cc 17 0 1 <*> pure 1
+  --       -- )
+  --   , on mouseClick
+  --   ]
+
+  -- gptShader0 rectBuf defaultOpOptions $ GenSignal
+  --   ( #p0 =: cc 14 1 10
+  --   , #p1 =: cc 15 0 2
+  --   )
+
+  -- xform rectBuf defaultOpOptions (postImage manager) $ gptShader0 rectBuf defaultOpOptions $ GenSignal
   gptShader0 rectBuf defaultOpOptions $ GenSignal
-    ( #p0 =: cc 14 1 10
-    , #p1 =: cc 15 0 2
+    ( #p0 =: fmap (\(x, _) -> ranged 1 10 0 1024 (tf x)) mousePos
+    , #p1 =: fmap (\(_, y) -> ranged 1 10 0 1024 (tf y)) mousePos
     )
 
   -- gptShader1 rectBuf defaultOpOptions (Params4 <$> ccValue 14 <*> fmap (toRange 0 1) (ccValue 15) <*> fmap (toRange 0 20) (ccValue 16) <*> fmap (toRange 0.1 5) (ccValue 17))
@@ -225,6 +254,9 @@ scene rectBuf mouseClick mousePos ccMap = do
     -- traceParams = fmap (\c -> defaultTraceParams { tpMaxIterations = fi c, tpFresnelBase = 1, tpFresnelExp = 2 }) cc
     traceParams :: Signal (TraceParams Values)
     traceParams = TraceParams <$> ccValue 14 <*> fmap (toRange 0.5 2) (ccValue 15) <*> fmap (toRange 1 5) (ccValue 16) <*> fmap (toRange 0 1) (ccValue 17)
+
+    ranged :: Float -> Float -> Float -> Float -> Float -> Float
+    ranged a b c d x = a + (b - a) * ((x - c) / (d - c))
 
     toRange :: Float -> Float -> Word8 -> Float
     toRange mi ma w = mi + (realToFrac w / 127.0 * (ma - mi))
@@ -259,6 +291,8 @@ main = do
 
   ccMap <- newIORef mempty :: IO (IORef (M.Map Word8 Word8))
 
+  manager <- newManager defaultManagerSettings
+
   RT.setCallback dev $ \ts msg -> do
     putStrLn $ "id: " <> show (msg V.! 1) <> ", value: " <> show (msg V.! 2)
     atomicModifyIORef' ccMap (\m -> (M.insert (msg V.! 1) (msg V.! 2) m, ()))
@@ -284,7 +318,7 @@ main = do
          rectBuf <- createRectBuffer
          (blitToScreen, _) <- blit rectBuf (GL.Size 1024 1024)
 
-         for_ mWin (go False mouseClick blitToScreen Nothing $ reinterpret $ scene rectBuf mouseClick mousePos (Signal $ fmap (\ccMap' ccId -> fromMaybe 0 $ M.lookup ccId ccMap') (readIORef ccMap)))
+         for_ mWin (go False mouseClick blitToScreen Nothing $ reinterpret $ scene manager rectBuf mouseClick mousePos (Signal $ fmap (\ccMap' ccId -> fromMaybe 0 $ M.lookup ccId ccMap') (readIORef ccMap)))
 
   putStrLn "bye..."
 
