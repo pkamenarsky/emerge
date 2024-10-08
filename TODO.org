@@ -8,3 +8,7 @@ etc
 
 * DONE convert between `Syn v ()` and `Mealy () v`
 * DONE lift simple op `Op a` into both `Signal a -> Syn Out ()`  and `Mealy a Out`
+
+* PROJECT IDEAS
+** explore visual polyrithms; e.g. e.g. union betwen subfigures shapeshifting in polyrithms to each other; be it 2 or more shapes, sdfs, or even properties of figues like color, dimensions, etc
+*** 2 levels: polyrithms in the Concur part; an polyrithms in signals
