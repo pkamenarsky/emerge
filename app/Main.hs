@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -38,7 +39,7 @@ import SDF
 import Syn
 import Syn.Run
 
-import GHC.Word
+import GHC.Generics
 import GHC.Word
 
 import qualified Sound.RtMidi as RT
@@ -59,14 +60,12 @@ postImage manager png = do
 
 --------------------------------------------------------------------------------
 
-gptShader0 :: MonadIO m => RectBuffer -> OpOptions -> GenSignal [Param "p0" Float, Param "p1" Float] -> Syn [Out] m a
-gptShader0 rectBuf opts = genShaderSyn rectBuf opts defaultShaderParamDeriveOpts def fragT
-  where
-    def =
-      ( #p0 =: float 10
-      , #p1 =: float 0.5
-      )
+data S0 = S0 { p0 :: Signal Float, p1 :: Signal Float } deriving Generic
+instance Default S0 where def = S0 { p0 = pure 10, p1 = pure 0.5 }
 
+gptShader0 :: MonadIO m => RectBuffer -> OpOptions -> S0 -> Syn [Out] m a
+gptShader0 rectBuf opts = genShaderSyn'' rectBuf opts defaultShaderParamDeriveOpts fragT
+  where
     fragT udefs = [i|
 #{formatParamUniforms udefs}
 
@@ -81,7 +80,7 @@ float gyroid(vec3 p) {
 
 // Function to get distance to the object
 float map(vec3 p) {
-    return gyroid(p * #{field udefs #p0}) * #{field udefs #p1} + length(p) - 1.0;  // Combine with sphere for variation
+    return gyroid(p * #{uniform' udefs #p0}) * #{uniform' udefs #p1} + length(p) - 1.0;  // Combine with sphere for variation
 }
 
 // Raymarching function
@@ -170,10 +169,10 @@ scene manager rectBuf mouseClick mousePos ccMap = do
   --   )
 
   -- xform rectBuf defaultOpOptions (postImage manager) $ gptShader0 rectBuf defaultOpOptions $ GenSignal
-  gptShader0 rectBuf defaultOpOptions $ GenSignal
-    ( #p0 =: fmap (\(x, _) -> ranged 1 10 0 1024 (tf x)) mousePos
-    , #p1 =: fmap (\(_, y) -> ranged 1 10 0 1024 (tf y)) mousePos
-    )
+  gptShader0 rectBuf defaultOpOptions x
+    { p0 = fmap (\(x, _) -> ranged 1 10 0 1024 (tf x)) mousePos
+    , p1 = fmap (\(_, y) -> ranged 1 10 0 1024 (tf y)) mousePos
+    }
 
   -- gptShader1 rectBuf defaultOpOptions (Params4 <$> ccValue 14 <*> fmap (toRange 0 1) (ccValue 15) <*> fmap (toRange 0 20) (ccValue 16) <*> fmap (toRange 0.1 5) (ccValue 17))
 
