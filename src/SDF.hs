@@ -27,9 +27,7 @@ import qualified Graphics.Rendering.OpenGL as GL
 import GHC.Generics (Generic)
 
 import Common
-import Gen
 import Syn
-import Syn.Run
 import Types hiding (Name)
 
 --------------------------------------------------------------------------------
@@ -285,11 +283,11 @@ compile eval sdf = (compileDefs, setParams)
 
 --------------------------------------------------------------------------------
 
-sdfOp :: (OpOptions -> SDFEval) -> SDF -> Op a
-sdfOp eval sdf = Op $ do
+sdf :: (OpOptions -> SDFEval) -> SDF -> Op a
+sdf eval sdfDefs = Op $ do
   OpContext opts rectBuf <- lift ask
 
-  let (fragT, init) = compile (eval opts) sdf
+  let (fragT, init) = compile (eval opts) sdfDefs
 
   (out, destroy) <- unsafeNonBlockingIO $ do
     (tex, bindFBO, destroyFBO) <- createFramebuffer opts
