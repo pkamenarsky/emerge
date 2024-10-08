@@ -48,6 +48,21 @@ import Data.Void
 
 newtype Texture (n :: Nat) = Texture (Maybe GL.TextureObject)
 
+--------------------------------------------------------------------------------
+
+class GLSLType t where glslType :: Proxy t -> Text
+
+instance GLSLType GL.GLint where glslType _ = "int"
+-- instance GLSLType GL.GLuint where glslType _ = "uint"
+instance GLSLType Float where glslType _ = "float"
+instance GLSLType Double where glslType _ = "double"
+instance GLSLType (GL.Vector2 Float) where glslType _ = "vec2"
+instance GLSLType (GL.Vector3 Float) where glslType _ = "vec3"
+instance GLSLType (GL.Vector4 Float) where glslType _ = "vec4"
+instance GLSLType (GL.Color4 Float) where glslType _ = "vec4"
+
+--------------------------------------------------------------------------------
+
 data ShaderParamDeriveOpts = ShaderParamDeriveOpts
   { spFieldLabelModifier :: String -> String
   }
@@ -125,10 +140,6 @@ instance {-# OVERLAPPING #-} (KnownSymbol name, KnownNat n) => GShaderParams (M1
 
 class ShaderParams a where
   shaderParams :: ShaderParamDeriveOpts -> (ParamFields a, GL.Program -> IO (a -> IO ()))
-  -- default shaderParams :: Generic a => GShaderParams (Rep a) => ShaderParamDeriveOpts -> ([(Text, Text)], GL.Program -> IO (a -> IO ()))
-  -- shaderParams opts program = do
-  --   set <- gShaderParams opts program
-  --   pure $ \a -> set (from a)
 
 -- For shaders without uniforms
 instance ShaderParams () where
@@ -143,11 +154,6 @@ instance (Generic a, GShaderParams (Rep a)) => ShaderParams a where
     )
     where
       (fields, init) = gShaderParams opts
-
--- genericShaderParam :: Generic a => GShaderParams (Rep a) => ShaderParamDeriveOpts -> GL.Program -> IO (a -> IO ())
--- genericShaderParam opts program = do
---   set <- gShaderParams opts program
---   pure $ \a -> set (from a)
 
 instance (GLSLType t, GL.Uniform t) => ShaderParams (Only t Values) where
   shaderParams opts =
@@ -186,6 +192,13 @@ class GetField a s t | a s -> t where
 instance (Generic a, GGetField (Rep a) s t) => GetField a s t where
   getField a s = gGetField (from a) s
 
+--------------------------------------------------------------------------------
+
+uniform' :: forall a s t. (KnownSymbol s, GetField a s t) => ParamFields a -> Name s -> String
+uniform' (ParamFields opts _) _ = spFieldLabelModifier opts $ symbolVal $ Proxy @s
+
+--------------------------------------------------------------------------------
+
 data Person = Person { name :: String, age :: Int, friends :: Bool }
   deriving Generic
 
@@ -193,19 +206,6 @@ person :: Person
 person = undefined
 
 aaaa = getField person #age
-
---------------------------------------------------------------------------------
-
-class GLSLType t where glslType :: Proxy t -> Text
-
-instance GLSLType GL.GLint where glslType _ = "int"
--- instance GLSLType GL.GLuint where glslType _ = "uint"
-instance GLSLType Float where glslType _ = "float"
-instance GLSLType Double where glslType _ = "double"
-instance GLSLType (GL.Vector2 Float) where glslType _ = "vec2"
-instance GLSLType (GL.Vector3 Float) where glslType _ = "vec3"
-instance GLSLType (GL.Vector4 Float) where glslType _ = "vec4"
-instance GLSLType (GL.Color4 Float) where glslType _ = "vec4"
 
 --------------------------------------------------------------------------------
 
