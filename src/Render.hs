@@ -59,7 +59,7 @@ import Debug.Trace
 
 --------------------------------------------------------------------------------
 
-blit :: RectBuffer -> GL.Size -> IO (GL.TextureObject -> IO (), IO ())
+blit :: GL.BufferObject -> GL.Size -> IO (GL.TextureObject -> IO (), IO ())
 blit rectBuf viewport@(GL.Size width height) = do
   (attribs, bindShader, destroyShader) <- createShader Nothing fragT
   (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
@@ -97,65 +97,30 @@ void main() {
 
 -- Ops (fill) ------------------------------------------------------------------
 
-data FillParams = FillParams
-  { foColor :: GL.Color4 Float
+data FillUniforms = FillUniforms
+  { color :: Signal Color4
   } deriving Generic
 
--- fill :: RectBuffer -> OpOptions -> IO (Op FillParams)
--- fill rectBuf opts = do
---   (tex, bindFBO, destroyFBO) <- createFramebuffer opts
---   (attribs, bindShader, destroyShader) <- createShader Nothing fragT
---   let (fields, init) = shaderParams defaultShaderParamDeriveOpts
--- 
---   (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
--- 
---   pure $ Op
---     { opTex = tex
---     , opRender = \params -> do
---         bindFBO
---         bindShader
---         setParams params
---         drawRect
---     , opDestroy = do
---         destroyFBO
---         destroyShader
---         destroyDrawRect
---     }
---   where
---     fragT = [i|
--- uniform vec4 foColor;
--- 
--- void main() {
---   gl_FragColor = foColor;
--- } |]
+instance Default FillUniforms where
+  def = FillUniforms { color = pure $ color4 1 1 1 1 }
 
--- fillSyn :: MonadIO m => RectBuffer -> OpOptions -> Signal FillParams -> Syn [Out] m a
--- fillSyn rectBuf opts params = do
---   Op tex render destroy <- unsafeNonBlockingIO $ fill rectBuf opts
--- 
---   finalize (liftIO destroy) $ view $ pure $ Out
---     { outTex = tex
---     , outRender = signalValue params >>= render
---     }
+fill :: FillUniforms -> Op a
+fill = shader0 x fragT
+  where
+    fragT _ u = [i|
+uniform vec4 foColor;
+
+void main() {
+  gl_FragColor = #{uniform u #color};
+} |]
 
 -- Ops (circle) ----------------------------------------------------------------
 
-data CircleOpts = CircleOpts { antialias :: Bool }
 data CircleUniforms = CircleUniforms
   { radius :: Signal Float
   , color :: Signal Color4
   , center :: Signal Vec2
   } deriving Generic
-
-data BlendUniforms = BlendUniforms
-  { center :: Vec2
-  }
-
-class Default a where
-  def :: a
-
-instance Default CircleOpts where def = CircleOpts { antialias = True }
-instance Default BlendUniforms where def = BlendUniforms { center = vec2 0 0 }
 
 instance Default CircleUniforms where
   def = CircleUniforms
@@ -164,92 +129,21 @@ instance Default CircleUniforms where
     , center = pure $ vec2 0.5 0.5
     }
 
-o :: Default a => a
-o = def
-
-x :: Default a => a
-x = def
-
-blenddd :: BlendUniforms -> Vec2
-blenddd = center
-
-bla = blenddd x {center = vec2 1 1}
-
-circleee :: CircleOpts -> CircleUniforms -> Signal Vec2
-circleee _ = center
-
-bla2 = circleee x {antialias = False} x {center = undefined}
-bla3 = circleee x x {center = undefined}
-bla4 = circleee x x
-bla5 = circleee x {antialias = False} x
-
-circleSyn
-  :: MonadIO m
-  => SubParams [Param "radius" Float, Param "color" Color4, Param "center" Vec2] params x y
-
-  => RectBuffer
-  -> OpOptions
-  -> params
---  -> GenSignal
---       [ Param "radius" Float
---       , Param "color" (GL.Color4 Float)
---       , Param "center" (GL.Vector2 Float)
---       ]
-  -> Syn [Out] m a
-circleSyn rectBuffer opts = genShaderSyn' rectBuffer opts defaultShaderParamDeriveOpts def fragT
+circle :: CircleUniforms -> Op a
+circle = shader0 x fragT
   where
-    def =
-      ( #radius =: float 0.5
-      , #color  =: color4 1 1 1 1
-      , #center =: vec2 0.5 0.5
-      )
-    fragT udefs = [i|
+    fragT opts u = [i|
 
-#{formatParamUniforms udefs}
+#{formatParamUniforms u}
 
 void main() {
   vec2 uv = gl_FragCoord.xy / #{resVec2 opts}.xy;
 
-  float dist = distance(uv, #{field udefs #center});
+  float dist = distance(uv, #{uniform u #center});
   float delta = fwidth(dist);
-  float alpha = smoothstep(#{field udefs #radius} - delta, #{field udefs #radius}, dist);
+  float alpha = smoothstep(#{uniform u #radius} - delta, #{uniform u #radius}, dist);
 
-  gl_FragColor = #{field udefs #color} * (1. - alpha);
-} |]
-
--- circleSyn'
---   :: MonadIO m
---   => SubParams [Param "radius" Float, Param "color" Color4, Param "center" Vec2] params x y
--- 
---   => RectBuffer
---   -> OpOptions
---   -> params
--- --  -> GenSignal
--- --       [ Param "radius" Float
--- --       , Param "color" (GL.Color4 Float)
--- --       , Param "center" (GL.Vector2 Float)
--- --       ]
---   -> Syn [Out] m a
-circleSyn' :: MonadIO m => RectBuffer -> OpOptions -> CircleUniforms -> Syn [Out] m a
-circleSyn' rectBuffer opts = genShaderSyn'' rectBuffer opts defaultShaderParamDeriveOpts fragT
-  where
-    -- def =
-    --   ( #radius =: float 0.5
-    --   , #color  =: color4 1 1 1 1
-    --   , #center =: vec2 0.5 0.5
-    --   )
-    fragT udefs = [i|
-
-#{formatParamUniforms udefs}
-
-void main() {
-  vec2 uv = gl_FragCoord.xy / #{resVec2 opts}.xy;
-
-  float dist = distance(uv, #{uniform' udefs #center});
-  float delta = fwidth(dist);
-  float alpha = smoothstep(#{uniform' udefs #radius} - delta, #{uniform' udefs #radius}, dist);
-
-  gl_FragColor = #{uniform' udefs #color} * (1. - alpha);
+  gl_FragColor = #{uniform u #color} * (1. - alpha);
 } |]
 
 -- Ops (blend) -----------------------------------------------------------------
@@ -257,47 +151,46 @@ void main() {
 data BlendMode = Add | Mul
 
 data BlendOptions = BlendOptions
-  { bpMode :: BlendMode
+  { mode :: BlendMode
+  }
+
+instance Default BlendOptions where
+  def = BlendOptions { mode = Add }
+
+data BlendUniforms = BlendUniforms
+  { factor :: Signal Float
   } deriving Generic
 
-defaultBlendOptions :: BlendOptions
-defaultBlendOptions = BlendOptions { bpMode = Add }
+instance Default BlendUniforms where
+  def = BlendUniforms { factor = pure 0.5 }
 
-blendSyn
-  :: MonadIO m
-  => RectBuffer
-  -> OpOptions
-  -> BlendOptions
-  -> GenSignal '[Param "factor" Float]
-  -> Syn [Out] m a
-  -> Syn [Out] m a
-  -> Syn [Out] m a
-blendSyn rectBuffer opts blendOpts = genShaderSyn2 rectBuffer opts defaultShaderParamDeriveOpts def fragT
+blend :: BlendOptions -> BlendUniforms -> Op a -> Op a -> Op a
+blend opts = shader2 x fragT
   where
-    def = #factor =: float 0.5
-    fragT udefs = [i|
-#{formatParamUniforms udefs}
+    modeFrag u src = t $ case mode opts of
+      Add -> [i|  gl_FragColor = texture2D(#{uniform src #tex0}, uv) * #{uniform u #factor} + texture2D(#{uniform src #tex1}, uv) * (1. - #{uniform u #factor});|]
+      Mul -> [i|  gl_FragColor = texture2D(#{uniform src #tex0}, uv) * #{uniform u #factor} * texture2D(#{uniform src #tex1}, uv) * (1. - #{uniform u #factor});|]
+
+    fragT opOpts u src = [i|
+#{formatParamUniforms u}
+#{formatParamUniforms src}
 
 void main() {
-  vec2 uv = gl_FragCoord.xy / #{resVec2 opts};
+  vec2 uv = gl_FragCoord.xy / #{resVec2 opOpts};
 
-  #{t $ mode udefs}
+  #{modeFrag u src}
 } |]
-
-    mode udefs = case bpMode blendOpts of
-      Add -> [i|  gl_FragColor = texture2D(#{field udefs #tex0}, uv) * #{field udefs #factor} + texture2D(#{field udefs #tex1}, uv) * (1. - #{field udefs #factor});|]
-      Mul -> [i|  gl_FragColor = texture2D(#{field udefs #tex0}, uv) * #{field udefs #factor} * texture2D(#{field udefs #tex1}, uv) * (1. - #{field udefs #factor});|]
 
     t :: Text -> Text
     t = id
 
 --------------------------------------------------------------------------------
 
-xform :: MonadIO m => RectBuffer -> OpOptions -> (BL.ByteString -> IO B.ByteString) -> Syn [Out] m a -> Syn [Out] m a
+xform :: MonadIO m => GL.BufferObject -> OpOptions -> (BL.ByteString -> IO B.ByteString) -> Syn [Out] m a -> Syn [Out] m a
 xform rectBuf opts io s = do
   (tex', bindFBO, bindShader, uniforms) <- unsafeNonBlockingIO $ do
     (tex', bindFBO, destroyFBO) <- createFramebuffer opts
-    let (udefs, getUniforms) = shaderParams'' defaultShaderParamDeriveOpts $ #tex =: texture @0 (Just tex')
+    let (udefs, getUniforms) = shaderParams'' x $ #tex =: texture @0 (Just tex')
     (attribs, bindShader, destroyShader) <- createShader Nothing (fragT udefs)
 
     bindShader

@@ -77,18 +77,16 @@ data OpOptions = OpOptions
   , opClamp :: GL.Clamping
   }
 
+instance Default OpOptions where
+  def = OpOptions
+    { opWidth = 1024
+    , opHeight = 1024
+    , opFormat = GL.RGBA8
+    , opClamp = GL.ClampToEdge
+    }
+
 resVec2 :: OpOptions -> Text
 resVec2 opts = [i|vec2 (#{opWidth opts}, #{opHeight opts})|];
-
-defaultOpOptions :: OpOptions
-defaultOpOptions = OpOptions
-  { opWidth = 1024
-  , opHeight = 1024
-  , opFormat = GL.RGBA8
-  , opClamp = GL.ClampToEdge
-  }
-
-data RectBuffer = RectBuffer GL.BufferObject
 
 data ShaderAttribs = ShaderAttribs
   { saPos :: GL.AttribLocation
@@ -107,7 +105,7 @@ data OpContext = OpContext
   }
 
 newtype Op a = Op { runOp :: Syn [Out] (ReaderT OpContext IO) a }
-  deriving (Functor, Applicative, Monad)
+  deriving (Functor, Applicative, Monad, Alternative, Semigroup)
 
 --------------------------------------------------------------------------------
 

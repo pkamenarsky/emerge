@@ -12,6 +12,7 @@ import Control.Applicative
 import Control.Exception
 import Control.Monad (void)
 import Control.Monad.IO.Class
+import Control.Monad.Trans.Reader
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
@@ -37,7 +38,8 @@ import Render
 import SDF
 
 import Syn
-import Syn.Run
+import Syn.Run (Event (Event))
+import qualified Syn.Run as Run
 
 import GHC.Generics
 import GHC.Word
@@ -63,10 +65,10 @@ postImage manager png = do
 data S0 = S0 { p0 :: Signal Float, p1 :: Signal Float } deriving Generic
 instance Default S0 where def = S0 { p0 = pure 10, p1 = pure 0.5 }
 
-gptShader0 :: MonadIO m => RectBuffer -> OpOptions -> S0 -> Syn [Out] m a
-gptShader0 rectBuf opts = genShaderSyn'' rectBuf opts defaultShaderParamDeriveOpts fragT
+gptShader0 :: S0 -> Op a
+gptShader0 = shader0 x fragT
   where
-    fragT udefs = [i|
+    fragT opts udefs = [i|
 #{formatParamUniforms udefs}
 
 const int MAX_STEPS = 100;
@@ -80,7 +82,7 @@ float gyroid(vec3 p) {
 
 // Function to get distance to the object
 float map(vec3 p) {
-    return gyroid(p * #{uniform' udefs #p0}) * #{uniform' udefs #p1} + length(p) - 1.0;  // Combine with sphere for variation
+    return gyroid(p * #{uniform udefs #p0}) * #{uniform udefs #p1} + length(p) - 1.0;  // Combine with sphere for variation
 }
 
 // Raymarching function
@@ -140,28 +142,32 @@ void main() {
 
 --------------------------------------------------------------------------------
 
-scene :: MonadIO m => Manager -> RectBuffer -> Event () -> Signal (Double, Double) -> Signal (Word8 -> Word8) -> Syn [Out] m a
-scene manager rectBuf mouseClick mousePos ccMap = do
+on :: Event a -> Op a
+on = Op . Run.on
+
+scene :: Manager -> Event () -> Signal (Double, Double) -> Signal (Word8 -> Word8) -> Op a
+scene manager mouseClick mousePos ccMap = do
   -- asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.05), on mouseClick ]
   -- asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.1), on mouseClick ]
   -- asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.15), on mouseClick ]
 
   -- xform rectBuf defaultOpOptions (postImage manager) $ asum
   let b1 = 
-        void $ circleSyn rectBuf defaultOpOptions
-          ( #radius =: fmap (\(x, y) -> tf (x / 1024)) mousePos
+        void $ circle x
+          { radius = fmap (\(x, y) -> tf (x / 1024)) mousePos
           -- ( #radius =: cc 14 0 0.5
           -- , #color  =: color4 <$> cc 15 0 1 <*> cc 16 0 1 <*> cc 17 0 1 <*> pure 1
           -- , #color  =: (pure (color4 1 1 1 1) :: Signal (GL.Color4 Float))
-          )
+          }
       b2 = 
-        void $ circleSyn' rectBuf defaultOpOptions x
+        void $ circle x
           { radius = fmap (\(x, y) -> tf (y / 1024)) mousePos
           }
           -- ( #radius =: cc 14 0 0.5
           -- , #color  =: color4 <$> cc 15 0 1 <*> cc 16 0 1 <*> cc 17 0 1 <*> pure 1
           -- , #color  =: (pure (color4 1 1 1 1) :: Signal (GL.Color4 Float))
-  asum [ blendSyn rectBuf defaultOpOptions defaultBlendOptions (GenSignal ()) b1 b2, on mouseClick ]
+  -- asum [ blendSyn rectBuf defaultOpOptions defaultBlendOptions (GenSignal ()) b1 b2, on mouseClick ]
+  asum [ blend x x b1 b2, on mouseClick ]
 
   -- gptShader0 rectBuf defaultOpOptions $ GenSignal
   --   ( #p0 =: cc 14 1 10
@@ -169,7 +175,7 @@ scene manager rectBuf mouseClick mousePos ccMap = do
   --   )
 
   -- xform rectBuf defaultOpOptions (postImage manager) $ gptShader0 rectBuf defaultOpOptions $ GenSignal
-  gptShader0 rectBuf defaultOpOptions x
+  gptShader0 x
     { p0 = fmap (\(x, _) -> ranged 1 10 0 1024 (tf x)) mousePos
     , p1 = fmap (\(_, y) -> ranged 1 10 0 1024 (tf y)) mousePos
     }
@@ -209,8 +215,8 @@ scene manager rectBuf mouseClick mousePos ccMap = do
     fi = fromIntegral
     tf = realToFrac
 
-    fillParams = flip fmap mousePos $ \(mx, my) -> FillParams
-      (GL.Color4 (tf $ mx / 1024.0) (tf $ my / 1024.0) 1 1) 
+    -- fillParams = flip fmap mousePos $ \(mx, my) -> FillParams
+    --   (GL.Color4 (tf $ mx / 1024.0) (tf $ my / 1024.0) 1 1) 
 
     -- circleParams radius = flip fmap mousePos $ \(mx, my) -> CircleParams
     --   (GL.Color4 (tf $ mx / 1024.0) (tf $ my / 1024.0) 1 1) 
@@ -243,7 +249,7 @@ main = do
     $ \mWin -> do
          let mousePos = Signal $ maybe (pure (0, 0)) GLFW.getCursorPos mWin
 
-         mouseClick <- newEvent
+         mouseClick <- Run.newEvent
 
          GLFW.makeContextCurrent mWin
          GL.debugMessageCallback $= Just dbg
@@ -251,7 +257,7 @@ main = do
          rectBuf <- createRectBuffer
          (blitToScreen, _) <- blit rectBuf (GL.Size 1024 1024)
 
-         for_ mWin (go False mouseClick blitToScreen Nothing $ reinterpret $ scene manager rectBuf mouseClick mousePos (Signal $ fmap (\ccMap' ccId -> fromMaybe 0 $ M.lookup ccId ccMap') (readIORef ccMap)))
+         flip runReaderT (OpContext x rectBuf) $ for_ mWin (go False mouseClick blitToScreen Nothing $ reinterpret $ runOp $ scene manager mouseClick mousePos (Signal $ fmap (\ccMap' ccId -> fromMaybe 0 $ M.lookup ccId ccMap') (readIORef ccMap)))
 
   putStrLn "bye..."
 
@@ -272,39 +278,39 @@ main = do
     maybeHead (a:_) = Just a
     maybeHead _ = Nothing
 
-    go :: Bool -> Event () -> (GL.TextureObject -> IO ()) -> Maybe Out -> Run [Out] IO Void -> GLFW.Window -> IO ()
+    go :: Bool -> Event () -> (GL.TextureObject -> IO ()) -> Maybe Out -> Run [Out] (ReaderT OpContext IO) Void -> GLFW.Window -> ReaderT OpContext IO ()
     go mouseButtonSt e@(Event mouseClick) blitToScreen mOut run win = do
-      st <- GLFW.getMouseButton win GLFW.MouseButton'1
+      st <- liftIO $ GLFW.getMouseButton win GLFW.MouseButton'1
 
       mouseButtonSt' <- case st of
         GLFW.MouseButtonState'Pressed -> pure True
         _ -> pure False
 
       if clicked mouseButtonSt mouseButtonSt'
-        then writeIORef mouseClick (Just ())
+        then liftIO $ writeIORef mouseClick (Just ())
         else pure ()
 
       (next, rOut) <- unblock run
 
-      writeIORef mouseClick Nothing
+      liftIO $ writeIORef mouseClick Nothing
 
       -- [0]
       (next', rOut') <- unblock next
 
       let mOut' = asum [rOut' >>= maybeHead, rOut >>= maybeHead, mOut]
 
-      for_ mOut' $ \out -> do
+      liftIO $ for_ mOut' $ \out -> do
         outRender out
         blitToScreen (outTex out)
 
-      GLFW.swapBuffers win
+      liftIO $ GLFW.swapBuffers win
 
-      esc <- GLFW.getKey win GLFW.Key'Escape
+      esc <- liftIO $ GLFW.getKey win GLFW.Key'Escape
 
-      close <- GLFW.windowShouldClose win
+      close <- liftIO $ GLFW.windowShouldClose win
 
       if close || esc == GLFW.KeyState'Pressed
         then pure ()
         else do
-          GLFW.pollEvents
+          liftIO $ GLFW.pollEvents
           go mouseButtonSt' e blitToScreen mOut' next' win

@@ -44,6 +44,12 @@ import GHC.TypeLits
 
 --------------------------------------------------------------------------------
 
+class Default a where
+  def :: a
+
+x :: Default a => a
+x = def
+
 newtype Texture (n :: Nat) = Texture (Maybe GL.TextureObject)
 
 --------------------------------------------------------------------------------
@@ -65,8 +71,8 @@ data ShaderParamDeriveOpts = ShaderParamDeriveOpts
   { spFieldLabelModifier :: String -> String
   }
 
-defaultShaderParamDeriveOpts :: ShaderParamDeriveOpts
-defaultShaderParamDeriveOpts = ShaderParamDeriveOpts id
+instance Default ShaderParamDeriveOpts where
+  def = ShaderParamDeriveOpts id
 
 class GShaderParams f where                                                           
   gShaderParams :: ShaderParamDeriveOpts -> ([(Text, Text)], GL.Program -> IO (f a -> IO ()))
@@ -176,8 +182,8 @@ instance (Generic a, GGetField (Rep a) s t) => GetField a s t where
 
 --------------------------------------------------------------------------------
 
-uniform' :: forall a s t. (KnownSymbol s, GetField a s t) => ParamFields a -> Name s -> String
-uniform' (ParamFields opts _) _ = spFieldLabelModifier opts $ symbolVal $ Proxy @s
+uniform :: forall a s t. (KnownSymbol s, GetField a s t) => ParamFields a -> Name s -> String
+uniform (ParamFields opts _) _ = spFieldLabelModifier opts $ symbolVal $ Proxy @s
 
 --------------------------------------------------------------------------------
 

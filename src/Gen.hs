@@ -1,6 +1,10 @@
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Gen where
@@ -17,12 +21,13 @@ import Syn
 import Types
 
 import GHC.Generics
+import GHC.TypeLits
 
 
 shader0
   :: ShaderParams params
   => ShaderParamDeriveOpts
-  -> (ParamFields params -> Text)
+  -> (OpOptions -> ParamFields params -> Text)
   -> params
   -> Op a
 shader0 deriveOpts fragT params = Op $ do
@@ -31,7 +36,7 @@ shader0 deriveOpts fragT params = Op $ do
   (out, destroy) <- unsafeNonBlockingIO $ do
     (tex, bindFBO, destroyFBO) <- createFramebuffer opts
     let (fields, initUniforms) = shaderParams deriveOpts
-    (attribs, bindShader, destroyShader) <- createShader Nothing (fragT fields)
+    (attribs, bindShader, destroyShader) <- createShader Nothing (fragT opts fields)
 
     bindShader
     setUniforms <- initUniforms (saProgram attribs)
@@ -61,7 +66,7 @@ data Syn1 = Syn1 { tex0 :: Signal (Texture 0) }
 shader1
   :: ShaderParams params
   => ShaderParamDeriveOpts
-  -> (ParamFields params -> ParamFields Syn1 -> Text)
+  -> (OpOptions -> ParamFields params -> ParamFields Syn1 -> Text)
   -> params
   -> Op a
   -> Op a
@@ -74,7 +79,7 @@ shader1 deriveOpts fragT params op1 = Op $ do
     let (fields, initUniforms) = shaderParams deriveOpts
     let (fieldsSrc, initUniformsSrc) = shaderParams deriveOpts
 
-    (attribs, bindShader, destroyShader) <- createShader Nothing (fragT fields fieldsSrc)
+    (attribs, bindShader, destroyShader) <- createShader Nothing (fragT opts fields fieldsSrc)
 
     bindShader
     setUniforms <- initUniforms (saProgram attribs)
@@ -110,7 +115,7 @@ data Syn2 = Syn2 { tex0 :: Signal (Texture 0), tex1 :: Signal (Texture 1) }
 shader2
   :: ShaderParams params
   => ShaderParamDeriveOpts
-  -> (ParamFields params -> ParamFields Syn2 -> Text)
+  -> (OpOptions -> ParamFields params -> ParamFields Syn2 -> Text)
   -> params
   -> Op a
   -> Op a
@@ -124,7 +129,7 @@ shader2 deriveOpts fragT params op1 op2 = Op $ do
     let (fields, initUniforms) = shaderParams deriveOpts
     let (fieldsSrc, initUniformsSrc) = shaderParams deriveOpts
 
-    (attribs, bindShader, destroyShader) <- createShader Nothing (fragT fields fieldsSrc)
+    (attribs, bindShader, destroyShader) <- createShader Nothing (fragT opts fields fieldsSrc)
 
     bindShader
     setUniforms <- initUniforms (saProgram attribs)

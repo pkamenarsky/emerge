@@ -59,6 +59,8 @@ name (Name n) = "n_" <> T.pack (show n)
 
 --------------------------------------------------------------------------------
 
+{-
+
 box :: GenSignal '[Param "dimensions" Vec3] -> SDF
 box (GenSignal params) = SDF $ \pos -> do
   prefix <- name <$> genName
@@ -295,3 +297,5 @@ sdf rectBuf opts eval sdf = do
   finalize (liftIO destroy) $ view [out]
   where
     (fragT, setParams) = compile (eval opts) sdf
+
+-}
