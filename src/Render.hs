@@ -1,61 +1,31 @@
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedLabels #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeFamilies #-}
 
 module Render where
 
-import Control.Applicative
-import Control.Concurrent
-import Control.Concurrent.MVar
 import Control.Monad
 import Control.Monad.IO.Class
-import qualified Control.Monad.Trans.State as ST
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Reader
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
-import Data.ByteString (ByteString)
-import Data.Foldable
-import Data.IORef
-import Data.ObjectName
-import Data.Machine.MealyT
 import Data.StateVar
-import qualified Data.Set as S
 import Data.String.Interpolate (i)
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
-import qualified Data.Text.IO as T
 import Data.Text (Text)
-
-import Foreign.Ptr
-import Foreign.C.Types
-import Foreign.Marshal.Array
-import Foreign.Marshal.Alloc
-import Foreign.Storable
 
 import qualified Graphics.Rendering.OpenGL as GL
 
 import Common
 import Syn
-import Syn.Run
 import Gen
 
 import GHC.Generics
-import GHC.Int
-import GHC.Word
-
-import System.FilePath ((</>))
-import qualified System.FilePath as Path
 
 import Types
-
-import Debug.Trace
 
 --------------------------------------------------------------------------------
 
@@ -167,18 +137,17 @@ instance Default BlendUniforms where
 blend :: BlendOptions -> BlendUniforms -> Op a -> Op a -> Op a
 blend opts = shader2 x fragT
   where
-    modeFrag u src = t $ case mode opts of
-      Add -> [i|  gl_FragColor = texture2D(#{uniform src #tex0}, uv) * #{uniform u #factor} + texture2D(#{uniform src #tex1}, uv) * (1. - #{uniform u #factor});|]
-      Mul -> [i|  gl_FragColor = texture2D(#{uniform src #tex0}, uv) * #{uniform u #factor} * texture2D(#{uniform src #tex1}, uv) * (1. - #{uniform u #factor});|]
+    modeFrag u tex0 tex1 = t $ case mode opts of
+      Add -> [i|  gl_FragColor = texture2D(#{tex0}, uv) * #{uniform u #factor} + texture2D(#{tex1}, uv) * (1. - #{uniform u #factor});|]
+      Mul -> [i|  gl_FragColor = texture2D(#{tex0}, uv) * #{uniform u #factor} * texture2D(#{tex1}, uv) * (1. - #{uniform u #factor});|]
 
-    fragT opOpts u src = [i|
+    fragT opOpts u tex0 tex1 = [i|
 #{formatParamUniforms u}
-#{formatParamUniforms src}
 
 void main() {
   vec2 uv = gl_FragCoord.xy / #{resVec2 opOpts};
 
-  #{modeFrag u src}
+  #{modeFrag u tex0 tex1}
 } |]
 
     t :: Text -> Text
@@ -186,43 +155,51 @@ void main() {
 
 --------------------------------------------------------------------------------
 
-xform :: MonadIO m => GL.BufferObject -> OpOptions -> (BL.ByteString -> IO B.ByteString) -> Syn [Out] m a -> Syn [Out] m a
-xform rectBuf opts io s = do
-  (tex', bindFBO, bindShader, uniforms) <- unsafeNonBlockingIO $ do
+mapOp :: (BL.ByteString -> IO B.ByteString) -> Op a -> Op a
+mapOp io op = Op $ do
+  OpContext opts _ <- lift ask
+
+  (f, destroy) <- unsafeNonBlockingIO $ do
     (tex', bindFBO, destroyFBO) <- createFramebuffer opts
-    let (udefs, getUniforms) = shaderParams'' x $ #tex =: texture @0 (Just tex')
-    (attribs, bindShader, destroyShader) <- createShader Nothing (fragT udefs)
+    (attribs, bindShader, destroyShader) <- createShader Nothing (fragT opts)
 
     bindShader
-    uniforms <- getUniforms (saProgram attribs)
 
-    pure (tex', bindFBO, bindShader, uniforms)
+    loc <- GL.uniformLocation (saProgram attribs) "tex"
+    when (loc < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> "tex" <> " not found"
+
+    pure 
+      ( \[out] -> Out
+           { outTex = tex'
+           , outRender = do
+               outRender out
+               img <- readImageFromTextureAlloc (outTex out)
+               case img of
+                 Right bs -> do
+                   image <- io bs
+
+                   bindFBO
+                   bindShader
+
+                   GL.activeTexture $= GL.TextureUnit 0
+                   GL.textureBinding GL.Texture2D $= Just tex'
+                   GL.uniform loc $= GL.TextureUnit 0
+
+                   writeImageToTexture tex' image
+                 Left e -> error e
+           }
+      , do
+          destroyFBO
+          destroyShader
+      )
   
-  -- TODO finalize
-  finalize (pure ()) $ mapView (f tex' bindFBO bindShader uniforms) s
+  finalize (liftIO destroy) $ mapView (pure . f) (runOp op)
+
   where
-    fragT udefs = [i|
-#{formatParamUniforms udefs}
+    fragT opts = [i|
+uniform sampler2D tex;
 
 void main() {
-  vec2 uv = gl_FragCoord.xy / vec2(#{opWidth opts}, #{opHeight opts});
+  vec2 uv = gl_FragCoord.xy / #{resVec2(opts)});
   gl_FragColor = texture2D(tex, uv);
 } |]
-
-    f tex' bindFBO bindShader uniforms [out] =
-      [ Out
-         { outTex = tex'
-         , outRender = do
-             outRender out
-             img <- readImageFromTextureAlloc (outTex out)
-             case img of
-               Right bs -> do
-                 image <- io bs
-                 bindFBO
-                 bindShader
-                 set uniforms $ fromTuples $ #tex =: texture @0 (Just tex')
-                 writeImageToTexture tex' image
-               Left e -> error e
-         }
-      ]
-          

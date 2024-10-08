@@ -9,12 +9,16 @@
 
 module Gen where
 
+import Control.Monad (when)
 import Control.Monad.IO.Class
 import           Control.Monad.Trans.Class (lift)
 import           Control.Monad.Trans.Reader
 
 import Data.Foldable (asum)
-import Data.Text (Text)
+import Data.StateVar (($=))
+import Data.Text (Text, pack)
+
+import qualified Graphics.Rendering.OpenGL as GL
 
 import Common
 import Syn
@@ -22,7 +26,6 @@ import Types
 
 import GHC.Generics
 import GHC.TypeLits
-
 
 shader0
   :: ShaderParams params
@@ -60,30 +63,35 @@ shader0 deriveOpts fragT params = Op $ do
 
   finalize (liftIO destroy) $ view [out]
 
-data Syn1 = Syn1 { tex0 :: Signal (Texture 0) }
-  deriving Generic
-
 shader1
   :: ShaderParams params
   => ShaderParamDeriveOpts
-  -> (OpOptions -> ParamFields params -> ParamFields Syn1 -> Text)
+  -> (OpOptions -> ParamFields params -> Text -> Text)
   -> params
   -> Op a
   -> Op a
-shader1 deriveOpts fragT params op1 = Op $ do
+shader1 deriveOpts fragT params op0 = Op $ do
   OpContext opts rectBuf <- lift ask
+
+  let tex0u = "tex0"
+      tex0 = spFieldLabelModifier deriveOpts tex0u
 
   (f, destroy) <- unsafeNonBlockingIO $ do
     (tex, bindFBO, destroyFBO) <- createFramebuffer opts
 
-    let (fields, initUniforms) = shaderParams deriveOpts
-    let (fieldsSrc, initUniformsSrc) = shaderParams deriveOpts
+    let (ParamFields deriveOpts' fields, initUniforms) = shaderParams deriveOpts
 
-    (attribs, bindShader, destroyShader) <- createShader Nothing (fragT opts fields fieldsSrc)
+    (attribs, bindShader, destroyShader) <- createShader Nothing $ fragT
+      opts
+      (ParamFields deriveOpts' ((pack "sampler2D", pack tex0u):fields))
+      (pack tex0)
 
     bindShader
+
+    loc0 <- GL.uniformLocation (saProgram attribs) tex0
+    when (loc0 < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> tex0 <> " not found"
+
     setUniforms <- initUniforms (saProgram attribs)
-    setUniformsSrc <- initUniformsSrc (saProgram attribs)
 
     (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
 
@@ -96,8 +104,11 @@ shader1 deriveOpts fragT params op1 = Op $ do
               bindFBO
               bindShader
 
+              GL.activeTexture $= GL.TextureUnit 0
+              GL.textureBinding GL.Texture2D $= Just (outTex out)
+              GL.uniform loc0 $= GL.TextureUnit 0
+
               setUniforms params
-              setUniformsSrc $ Syn1 { tex0 = pure $ Texture (Just $ outTex out) }
 
               drawRect
           }
@@ -107,51 +118,66 @@ shader1 deriveOpts fragT params op1 = Op $ do
           destroyDrawRect
       )
 
-  finalize (liftIO destroy) $ mapView (pure . f) (runOp op1)
-
-data Syn2 = Syn2 { tex0 :: Signal (Texture 0), tex1 :: Signal (Texture 1) }
-  deriving Generic
+  finalize (liftIO destroy) $ mapView (pure . f) (runOp op0)
 
 shader2
   :: ShaderParams params
   => ShaderParamDeriveOpts
-  -> (OpOptions -> ParamFields params -> ParamFields Syn2 -> Text)
+  -> (OpOptions -> ParamFields params -> Text -> Text -> Text)
   -> params
   -> Op a
   -> Op a
   -> Op a
-shader2 deriveOpts fragT params op1 op2 = Op $ do
+shader2 deriveOpts fragT params op0 op1 = Op $ do
   OpContext opts rectBuf <- lift ask
+
+  let tex0u = "tex0"
+      tex0 = spFieldLabelModifier deriveOpts tex0u
+      tex1u = "tex1"
+      tex1 = spFieldLabelModifier deriveOpts tex1u
 
   (f, destroy) <- unsafeNonBlockingIO $ do
     (tex, bindFBO, destroyFBO) <- createFramebuffer opts
 
-    let (fields, initUniforms) = shaderParams deriveOpts
-    let (fieldsSrc, initUniformsSrc) = shaderParams deriveOpts
+    let (ParamFields deriveOpts' fields, initUniforms) = shaderParams deriveOpts
 
-    (attribs, bindShader, destroyShader) <- createShader Nothing (fragT opts fields fieldsSrc)
+    (attribs, bindShader, destroyShader) <- createShader Nothing $ fragT
+      opts
+      (ParamFields deriveOpts' ((pack "sampler2D", pack tex0u):(pack "sampler2D", pack tex1u):fields))
+      (pack tex0)
+      (pack tex1)
 
     bindShader
+
+    loc0 <- GL.uniformLocation (saProgram attribs) tex0
+    loc1 <- GL.uniformLocation (saProgram attribs) tex0
+
+    when (loc0 < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> tex0 <> " not found"
+    when (loc1 < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> tex1 <> " not found"
+
     setUniforms <- initUniforms (saProgram attribs)
-    setUniformsSrc <- initUniformsSrc (saProgram attribs)
 
     (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
 
     pure
-      ( \[out1, out2] -> Out
+      ( \[out0, out1] -> Out
           { outTex = tex
           , outRender = do
+              outRender out0
               outRender out1
-              outRender out2
 
               bindFBO
               bindShader
 
+              GL.activeTexture $= GL.TextureUnit 0
+              GL.textureBinding GL.Texture2D $= Just (outTex out0)
+              GL.uniform loc0 $= GL.TextureUnit 0
+
+              GL.activeTexture $= GL.TextureUnit 1
+              GL.textureBinding GL.Texture2D $= Just (outTex out1)
+              GL.uniform loc0 $= GL.TextureUnit 1
+
               setUniforms params
-              setUniformsSrc $ Syn2
-                { tex0 = pure $ Texture (Just $ outTex out1)
-                , tex1 = pure $ Texture (Just $ outTex out2)
-                }
 
               drawRect
           }
@@ -161,4 +187,4 @@ shader2 deriveOpts fragT params op1 op2 = Op $ do
           destroyDrawRect
       )
 
-  finalize (liftIO destroy) $ mapView (pure . f) $ asum [ runOp op1, runOp op2 ]
+  finalize (liftIO destroy) $ mapView (pure . f) $ asum [ runOp op0, runOp op1 ]
