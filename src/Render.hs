@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedLabels #-}
@@ -141,6 +142,43 @@ fillSyn rectBuf opts params = do
     }
 
 -- Ops (circle) ----------------------------------------------------------------
+
+data CircleOpts = CircleOpts { antialias :: Bool }
+data CircleUniforms = CircleUniforms
+  { radius :: Signal Float
+  , color :: Signal Color4
+  , center :: Signal Float
+  }
+
+data BlendUniforms = BlendUniforms
+  { center :: Vec2
+  }
+
+class Default a where
+  def :: a
+
+instance Default CircleOpts where def = CircleOpts { antialias = True }
+instance Default BlendUniforms where def = BlendUniforms { center = vec2 0 0 }
+instance Default CircleUniforms where def = CircleUniforms { center = undefined }
+
+o :: Default a => a
+o = def
+
+x :: Default a => a
+x = def
+
+blenddd :: BlendUniforms -> Vec2
+blenddd = center
+
+bla = blenddd x {center = vec2 1 1}
+
+circleee :: CircleOpts -> CircleUniforms -> Signal Float
+circleee _ = center
+
+bla2 = circleee x {antialias = False} x {center = undefined}
+bla3 = circleee x x {center = undefined}
+bla4 = circleee x x
+bla5 = circleee x {antialias = False} x
 
 circleSyn
   :: MonadIO m

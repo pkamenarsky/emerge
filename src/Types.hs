@@ -27,7 +27,7 @@ import Control.Monad (when)
 
 import qualified Data.Map.Strict as M
 import Data.Proxy
-import Data.StateVar
+import Data.StateVar hiding (get)
 import Data.Text (Text)
 import Data.Type.Bool
 import qualified Data.Text as T
@@ -38,6 +38,9 @@ import qualified Graphics.Rendering.OpenGL as GL
 import GHC.Generics (Generic, Rep, V1, U1 (U1), (:*:) ((:*:)), C, D, K1 (K1), M1 (M1), S, Meta (MetaSel), from, to)
 import GHC.OverloadedLabels
 import GHC.TypeLits
+
+
+import Data.Void
 
 --------------------------------------------------------------------------------
 
@@ -316,6 +319,7 @@ data HList as where
   (:.) :: a -> HList as -> HList (a ': as)
 
 newtype Param (s :: Symbol) t = Param t
+newtype SigParam (s :: Symbol) t = SigParam (Signal t)
 
 type family IsEq (eq :: Ordering) :: Bool where
   IsEq 'EQ = 'True
@@ -370,6 +374,29 @@ class Params ps where
 instance Params '[] where
   initParams Nil = ([], mempty)
   setUniform _ _ = pure ()
+
+instance (KnownSymbol s, GLSLType t, GL.Uniform t, Params ps) => Params (SigParam s t ': ps) where
+  initParams (SigParam t :. ps) = ((glslType @t Proxy, T.pack $ symbolVal @s Proxy):fields, uniforms)
+    where
+      (fields, getUniforms') = initParams ps
+
+      uniforms program = do
+        loc <- GL.uniformLocation program (symbolVal @s Proxy)
+        when (loc < GL.UniformLocation 0) $ error $ "params: uniform " <> symbolVal @s Proxy <> " not found"
+        v <- signalValue t
+        GL.uniform loc $= v
+
+        uniforms' <- getUniforms' program
+
+        pure ((symbolVal @s Proxy, loc):uniforms')
+
+  setUniform (SigParam t :. ps) uniforms
+    | Just loc <- M.lookup (symbolVal @s Proxy) uniforms = do
+        v <- signalValue t
+        GL.uniform loc $= v
+        setUniform ps uniforms
+
+    | otherwise = setUniform ps uniforms
 
 instance (KnownSymbol s, GLSLType t, GL.Uniform t, Params ps) => Params (Param s t ': ps) where
   initParams (Param t :. ps) = ((glslType @t Proxy, T.pack $ symbolVal @s Proxy):fields, uniforms)
@@ -513,3 +540,29 @@ instance (KnownSymbol s, ElemSym s params ~ 'True) => IsLabel s (ParamFields par
 
 field :: forall s params. KnownSymbol s => ElemSym s params ~ 'True => ParamFields params -> Name s -> String
 field (ParamFields opts _) _ = spFieldLabelModifier opts $ symbolVal @s Proxy
+
+--------------------------------------------------------------------------------
+
+class GetField params s t | params s -> t where
+  getField :: HList params -> Name s -> t
+
+instance TypeError ('Text "No such field: " ':<>: 'Text s) => GetField '[] s Void where
+  getField _ _ = undefined
+
+instance {-# OVERLAPPING #-} GetField (Param s t ': ps) s t where
+  getField (Param t :. _) _ = t
+
+instance GetField ps s t => GetField (Param k u ': ps) s t where
+  getField (_ :. ps) s = getField ps s
+
+params0 = (#abc =: float 5, #def =: float 6)
+
+instance (FromTuples tuples (HList params), GetField params s t) => IsLabel s (tuples -> t) where
+  fromLabel = \tuples -> getField (fromTuples tuples) (Name @s)
+
+get' :: FromTuples tuples (HList params) => GetField params s t => tuples -> Name s -> t
+get' tuples s = getField (fromTuples tuples) s
+
+f = getField (fromTuples params0) (Name @"def")
+
+f' = #abc params0
