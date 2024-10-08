@@ -2,6 +2,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -14,6 +15,7 @@ module SDF where
 import Control.Monad.IO.Class
 import           Control.Monad.Trans.Class (lift)
 import qualified Control.Monad.Trans.State as ST
+import           Control.Monad.Trans.Reader
 import qualified Control.Monad.Trans.Writer.CPS as W
 
 import Data.String.Interpolate (i)
@@ -59,74 +61,85 @@ name (Name n) = "n_" <> T.pack (show n)
 
 --------------------------------------------------------------------------------
 
-{-
+data BoxUniforms = BoxUniforms
+  { dimensions :: Signal Vec3
+  } deriving Generic
 
-box :: GenSignal '[Param "dimensions" Vec3] -> SDF
-box (GenSignal params) = SDF $ \pos -> do
+instance Default BoxUniforms where
+  def = BoxUniforms { dimensions = pure $ vec3 0.5 0.5 0.5 }
+
+box :: BoxUniforms -> SDF
+box params = SDF $ \pos -> do
   prefix <- name <$> genName
   out <- genName
 
-  let opts = defaultShaderParamDeriveOpts
+  let opts = def
         { spFieldLabelModifier = (T.unpack prefix <>)
         }
-      (udefs, getUniforms) = shaderParams'' opts $ #dimensions =: vec3 0.5 0.5 0.5
+      (u, setParams) = shaderParams opts params
 
   W.tell $ pure $ SDFDef
     { sdfIncludes = ["assets/lygia/sdf/boxSDF.glsl"]
-    , sdfUniforms = paramUniforms udefs
-    , sdfDecls = [("float", out, [i|boxSDF(#{name pos}, #{field udefs #dimensions})|])]
-    , sdfSetParams = \program -> do
-        uniforms <- getUniforms program
-        pure $ seqParams (fromTuples params) >>= set uniforms
+    , sdfUniforms = paramUniforms u
+    , sdfDecls = [("float", out, [i|boxSDF(#{name pos}, #{uniform u #dimensions})|])]
+    , sdfSetParams = setParams
     }
 
   pure out
 
 --------------------------------------------------------------------------------
 
-translate :: GenSignal '[Param "translate" Vec3] -> SDF -> SDF
-translate (GenSignal params) sdf = SDF $ \pos -> do
+data TranslateUniforms = TranslateUniforms
+  { vec :: Signal Vec3
+  } deriving Generic
+
+instance Default TranslateUniforms where
+  def = TranslateUniforms { vec = pure $ vec3 0 0 0 }
+
+translate :: TranslateUniforms -> SDF -> SDF
+translate params sdf = SDF $ \pos -> do
   prefix <- name <$> genName
   newPos <- genName
 
-  let opts = defaultShaderParamDeriveOpts
+  let opts = def
         { spFieldLabelModifier = (T.unpack prefix <>)
         }
-      (udefs, getUniforms) = shaderParams'' opts $ #translate =: vec3 0 0 0
+      (u, setParams) = shaderParams opts params
 
   W.tell $ pure $ SDFDef
     { sdfIncludes = []
-    , sdfUniforms = paramUniforms udefs
-    , sdfDecls = [("vec3", newPos, [i|#{name pos} - #{field udefs #translate}|])]
-    , sdfSetParams = \program -> do
-        uniforms <- getUniforms program
-        pure $ seqParams (fromTuples params) >>= set uniforms
+    , sdfUniforms = paramUniforms u
+    , sdfDecls = [("vec3", newPos, [i|#{name pos} - #{uniform u #vec}|])]
+    , sdfSetParams = setParams
     }
 
   runSDF sdf newPos
 
 --------------------------------------------------------------------------------
 
-rotate :: GenSignal '[Param "axis" Vec3, Param "radians" Float] -> SDF -> SDF
-rotate (GenSignal params) sdf = SDF $ \pos -> do
+data RotateUniforms = RotateUniforms
+  { axis :: Signal Vec3
+  , radians :: Signal Float
+  } deriving Generic
+
+instance Default RotateUniforms where
+  def = RotateUniforms { axis = pure $ vec3 1 0 0, radians = pure 0 }
+
+rotate :: RotateUniforms -> SDF -> SDF
+rotate params sdf = SDF $ \pos -> do
   prefix <- name <$> genName
   newPos <- genName
 
-  let opts = defaultShaderParamDeriveOpts
+  let opts = def
         { spFieldLabelModifier = (T.unpack prefix <>)
         }
-      (udefs, getUniforms) = shaderParams'' opts
-        ( #axis =: vec3 0 0 0
-        , #radians =: float 0
-        )
+      (u, setParams) = shaderParams opts params
 
   W.tell $ pure $ SDFDef
     { sdfIncludes = ["assets/lygia/math/rotate3d.glsl"]
-    , sdfUniforms = paramUniforms udefs
-    , sdfDecls = [("vec3", newPos, [i|#{name pos} * rotate3d(#{field udefs #axis}, #{field udefs #radians})|])]
-    , sdfSetParams = \program -> do
-        uniforms <- getUniforms program
-        pure $ seqParams (fromTuples params) >>= set uniforms
+    , sdfUniforms = paramUniforms u
+    , sdfDecls = [("vec3", newPos, [i|#{name pos} * rotate3d(#{uniform u #axis}, #{uniform u #radians})|])]
+    , sdfSetParams = setParams
     }
 
   runSDF sdf newPos
@@ -151,18 +164,28 @@ union sdfA sdfB = SDF $ \pos -> do
 
 --------------------------------------------------------------------------------
 
+data TraceUniforms = TraceUniforms
+  { max_iterations :: Signal GLint
+  , fresnel_base :: Signal Float
+  , fresnel_exp :: Signal Float
+  , mix_factor :: Signal Float
+  } deriving Generic
+
+instance Default TraceUniforms where
+  def = TraceUniforms
+    { max_iterations = pure 64
+    , fresnel_base = pure 1
+    , fresnel_exp = pure 5
+    , mix_factor = pure 0.5
+    }
+
 trace
-  :: GenSignal
-      '[ Param "max_iterations" GLint
-       , Param "fresnel_base" Float
-       , Param "fresnel_exp" Float
-       , Param "mix_factor" Float
-       ]
+  :: TraceUniforms
   -> OpOptions
   -> SDFEval
-trace (GenSignal params) opts = SDFEval
+trace params opts = SDFEval
   { sdfeIncludes = []
-  , sdfeUniforms = paramUniforms udefs
+  , sdfeUniforms = paramUniforms u
   , sdfeBody = [i|
 vec3 getNormal(vec3 pos) {
   const float eps = 0.0001;
@@ -188,7 +211,7 @@ void main () {
   float tMax = 5.;
 
   for (int i = 0; i < 64; ++i) {
-      if (i >= #{field udefs #max_iterations}) break;
+      if (i >= #{uniform u #max_iterations}) break;
 
       vec3 currentPos = camPos + (t * ray);
       float h = sdf(currentPos);
@@ -204,28 +227,21 @@ void main () {
     vec3 normal = getNormal(currentPos);
     // float diff = dot(vec3(1.0), normal);
 
-    float fresnel = pow(#{field udefs #fresnel_base} + dot(ray, normal), #{field udefs #fresnel_exp});
+    float fresnel = pow(#{uniform u #fresnel_base} + dot(ray, normal), #{uniform u #fresnel_exp});
 
     // color = vec3(dot(ray, normal));
-    color = mix(color, vec3(#{field udefs #mix_factor}), fresnel);
+    color = mix(color, vec3(#{uniform u #mix_factor}), fresnel);
   }
 
   gl_FragColor = vec4(color, 1.0);
 } |]
-  , sdfeSetParams = \program -> do
-      uniforms <- getUniforms program
-      pure $ seqParams (fromTuples params) >>= set uniforms
+  , sdfeSetParams = setParams
   }
   where
     aspectRatio :: Float
     aspectRatio = fi (opWidth opts) / fi (opHeight opts)
 
-    (udefs, getUniforms) = shaderParams'' defaultShaderParamDeriveOpts
-      ( #max_iterations =: int 64
-      , #fresnel_base =: float 1
-      , #fresnel_exp =: float 5
-      , #mix_factor =: float 0.5
-      )
+    (u, setParams) = shaderParams x params
 
 --------------------------------------------------------------------------------
 
@@ -269,13 +285,17 @@ compile eval sdf = (compileDefs, setParams)
 
 --------------------------------------------------------------------------------
 
-sdf :: MonadIO m => RectBuffer -> OpOptions -> (OpOptions -> SDFEval) -> SDF -> Syn [Out] m a
-sdf rectBuf opts eval sdf = do
+sdfOp :: (OpOptions -> SDFEval) -> SDF -> Op a
+sdfOp eval sdf = Op $ do
+  OpContext opts rectBuf <- lift ask
+
+  let (fragT, init) = compile (eval opts) sdf
+
   (out, destroy) <- unsafeNonBlockingIO $ do
     (tex, bindFBO, destroyFBO) <- createFramebuffer opts
     (attribs, bindShader, destroyShader) <- createShader Nothing fragT
 
-    set <- setParams (saProgram attribs)
+    set <- init (saProgram attribs)
 
     (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
 
@@ -295,7 +315,3 @@ sdf rectBuf opts eval sdf = do
       )
 
   finalize (liftIO destroy) $ view [out]
-  where
-    (fragT, setParams) = compile (eval opts) sdf
-
--}

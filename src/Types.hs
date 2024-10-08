@@ -75,85 +75,49 @@ instance Default ShaderParamDeriveOpts where
   def = ShaderParamDeriveOpts id
 
 class GShaderParams f where                                                           
-  gShaderParams :: ShaderParamDeriveOpts -> ([(Text, Text)], GL.Program -> IO (f a -> IO ()))
+  gShaderParams :: ShaderParamDeriveOpts -> f a -> ([(Text, Text)], GL.Program -> IO (IO ()))
 
-instance GShaderParams V1 where gShaderParams _ = ([], \_ -> pure $ \_ -> pure ())
-instance GShaderParams U1 where gShaderParams _ = ([], \_ -> pure $ \_ -> pure ())
+instance GShaderParams V1 where gShaderParams _ _ = ([], \_ -> pure $ pure ())
+instance GShaderParams U1 where gShaderParams _ _ = ([], \_ -> pure $ pure ())
 
 instance GShaderParams a => GShaderParams (M1 C i a) where
-  gShaderParams opts =
-    ( fields
-    , \program -> do
-         set <- init program
-         pure $ \(M1 a) -> set a
-    )
-    where
-      (fields, init) = gShaderParams opts
+  gShaderParams opts (M1 a) = gShaderParams opts a
 
 instance GShaderParams a => GShaderParams (M1 D i a) where
-  gShaderParams opts =
-    ( fields
-    , \program -> do
-         set <- init program
-         pure $ \(M1 a) -> set a
-    )
-    where
-      (fields, init) = gShaderParams opts
+  gShaderParams opts (M1 a) = gShaderParams opts a
 
 instance (GShaderParams a, GShaderParams b) => GShaderParams (a :*: b) where
-  gShaderParams opts =
+  gShaderParams opts (a :*: b) =
     ( fieldsA <> fieldsB
     , \program -> do
          setA <- initA program
          setB <- initB program
 
-         pure $ \(a :*: b) -> setA a >> setB b
+         pure $ setA >> setB
     )
     where
-      (fieldsA, initA) = gShaderParams opts
-      (fieldsB, initB) = gShaderParams opts
-      
+      (fieldsA, initA) = gShaderParams opts a
+      (fieldsB, initB) = gShaderParams opts b
 
-instance {-# OVERLAPPABLE #-} (KnownSymbol name, GLSLType a, GL.Uniform a) => GShaderParams (M1 S ('MetaSel ('Just name) u s t) (K1 i (Signal a))) where
-  gShaderParams opts =
+instance (KnownSymbol name, GLSLType a, GL.Uniform a) => GShaderParams (M1 S ('MetaSel ('Just name) u s t) (K1 i (Signal a))) where
+  gShaderParams opts (M1 (K1 a)) =
     ( [(glslType $ Proxy @a, T.pack $ symbolVal $ Proxy @name)]
     , \program -> do
          loc <- GL.uniformLocation program n
          when (loc < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n <> " not found"
 
-         pure $ \(M1 (K1 a)) -> signalValue a >>= (GL.uniform loc $=)
-    )
-    where
-      n = spFieldLabelModifier opts $ symbolVal $ Proxy @name
-
-instance {-# OVERLAPPING #-} (KnownSymbol name, KnownNat n) => GShaderParams (M1 S ('MetaSel ('Just name) u s t) (K1 i (Signal (Texture n)))) where
-  gShaderParams opts =
-    ( [("sampler2D", T.pack $ symbolVal $ Proxy @name)]
-    , \program -> do
-         loc <- GL.uniformLocation program n
-         when (loc < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n <> " not found"
-
-         pure $ \(M1 (K1 a)) -> do
-           GL.activeTexture $= GL.TextureUnit (fromInteger $ natVal $ Proxy @n)
-           Texture tex <- signalValue a
-           GL.textureBinding GL.Texture2D $= tex
-           GL.uniform loc $= GL.TextureUnit (fromInteger $ natVal $ Proxy @n)
+         pure $ signalValue a >>= (GL.uniform loc $=)
     )
     where
       n = spFieldLabelModifier opts $ symbolVal $ Proxy @name
 
 class ShaderParams a where
-  shaderParams :: ShaderParamDeriveOpts -> (ParamFields a, GL.Program -> IO (a -> IO ()))
+  shaderParams :: ShaderParamDeriveOpts -> a -> (ParamFields a, GL.Program -> IO (IO ()))
 
 instance (Generic a, GShaderParams (Rep a)) => ShaderParams a where
-  shaderParams opts =
-    ( ParamFields opts fields
-    , \program -> do
-         set <- init program
-         pure $ \a -> set (from a)
-    )
+  shaderParams opts a = (ParamFields opts fields, init)
     where
-      (fields, init) = gShaderParams opts
+      (fields, init) = gShaderParams opts (from a)
 
 --------------------------------------------------------------------------------
 

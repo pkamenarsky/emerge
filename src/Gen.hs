@@ -24,8 +24,6 @@ import Common
 import Syn
 import Types
 
-import GHC.Generics
-import GHC.TypeLits
 
 shader0
   :: ShaderParams params
@@ -38,7 +36,7 @@ shader0 deriveOpts fragT params = Op $ do
 
   (out, destroy) <- unsafeNonBlockingIO $ do
     (tex, bindFBO, destroyFBO) <- createFramebuffer opts
-    let (fields, initUniforms) = shaderParams deriveOpts
+    let (fields, initUniforms) = shaderParams deriveOpts params
     (attribs, bindShader, destroyShader) <- createShader Nothing (fragT opts fields)
 
     bindShader
@@ -52,7 +50,7 @@ shader0 deriveOpts fragT params = Op $ do
           , outRender = do
               bindFBO
               bindShader
-              setUniforms params
+              setUniforms
               drawRect
           }
       , do
@@ -79,7 +77,7 @@ shader1 deriveOpts fragT params op0 = Op $ do
   (f, destroy) <- unsafeNonBlockingIO $ do
     (tex, bindFBO, destroyFBO) <- createFramebuffer opts
 
-    let (ParamFields deriveOpts' fields, initUniforms) = shaderParams deriveOpts
+    let (ParamFields deriveOpts' fields, initUniforms) = shaderParams deriveOpts params
 
     (attribs, bindShader, destroyShader) <- createShader Nothing $ fragT
       opts
@@ -108,7 +106,7 @@ shader1 deriveOpts fragT params op0 = Op $ do
               GL.textureBinding GL.Texture2D $= Just (outTex out)
               GL.uniform loc0 $= GL.TextureUnit 0
 
-              setUniforms params
+              setUniforms
 
               drawRect
           }
@@ -139,7 +137,7 @@ shader2 deriveOpts fragT params op0 op1 = Op $ do
   (f, destroy) <- unsafeNonBlockingIO $ do
     (tex, bindFBO, destroyFBO) <- createFramebuffer opts
 
-    let (ParamFields deriveOpts' fields, initUniforms) = shaderParams deriveOpts
+    let (ParamFields deriveOpts' fields, initUniforms) = shaderParams deriveOpts params
 
     (attribs, bindShader, destroyShader) <- createShader Nothing $ fragT
       opts
@@ -177,7 +175,7 @@ shader2 deriveOpts fragT params op0 op1 = Op $ do
               GL.textureBinding GL.Texture2D $= Just (outTex out1)
               GL.uniform loc0 $= GL.TextureUnit 1
 
-              setUniforms params
+              setUniforms
 
               drawRect
           }

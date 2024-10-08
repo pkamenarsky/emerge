@@ -94,7 +94,7 @@ data CircleUniforms = CircleUniforms
 
 instance Default CircleUniforms where
   def = CircleUniforms
-    { radius = pure $ float 0.5
+    { radius = pure 0.5
     , color = pure $ color4 1 1 1 1
     , center = pure $ vec2 0.5 0.5
     }
