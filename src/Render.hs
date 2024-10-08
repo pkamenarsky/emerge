@@ -75,7 +75,7 @@ instance Default FillUniforms where
   def = FillUniforms { color = pure $ color4 1 1 1 1 }
 
 fill :: FillUniforms -> Op a
-fill = shader0 x fragT
+fill = shader0 o fragT
   where
     fragT _ u = [i|
 uniform vec4 foColor;
@@ -100,7 +100,7 @@ instance Default CircleUniforms where
     }
 
 circle :: CircleUniforms -> Op a
-circle = shader0 x fragT
+circle = shader0 o fragT
   where
     fragT opts u = [i|
 
@@ -135,7 +135,7 @@ instance Default BlendUniforms where
   def = BlendUniforms { factor = pure 0.5 }
 
 blend :: BlendOptions -> BlendUniforms -> Op a -> Op a -> Op a
-blend opts = shader2 x fragT
+blend opts = shader2 o fragT
   where
     modeFrag u tex0 tex1 = t $ case mode opts of
       Add -> [i|  gl_FragColor = texture2D(#{tex0}, uv) * #{uniform u #factor} + texture2D(#{tex1}, uv) * (1. - #{uniform u #factor});|]

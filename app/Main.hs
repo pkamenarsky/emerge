@@ -66,10 +66,10 @@ data S0 = S0 { p0 :: Signal Float, p1 :: Signal Float } deriving Generic
 instance Default S0 where def = S0 { p0 = pure 10, p1 = pure 0.5 }
 
 gptShader0 :: S0 -> Op a
-gptShader0 = shader0 x fragT
+gptShader0 = shader0 o fragT
   where
-    fragT opts udefs = [i|
-#{formatParamUniforms udefs}
+    fragT opts u = [i|
+#{formatParamUniforms u}
 
 const int MAX_STEPS = 100;
 const float MIN_DIST = 0.001;
@@ -82,7 +82,7 @@ float gyroid(vec3 p) {
 
 // Function to get distance to the object
 float map(vec3 p) {
-    return gyroid(p * #{uniform udefs #p0}) * #{uniform udefs #p1} + length(p) - 1.0;  // Combine with sphere for variation
+    return gyroid(p * #{uniform u #p0}) * #{uniform u #p1} + length(p) - 1.0;  // Combine with sphere for variation
 }
 
 // Raymarching function
@@ -146,29 +146,24 @@ on :: Event a -> Op a
 on = Op . Run.on
 
 scene :: Manager -> Event () -> Signal (Double, Double) -> Signal (Word8 -> Word8) -> Op a
-scene manager mouseClick mousePos ccMap = do
-  let b1 = circle x { radius = fmap (\(x, y) -> tf (x / 1024)) mousePos }
-      b2 = circle x { radius = fmap (\(x, y) -> tf (y / 1024)) mousePos }
+scene _manager mouseClick mousePos ccMap = do
+  let b1 = circle o { radius = fmap (\(x, _) -> tf (x / 1024)) mousePos }
+      b2 = circle o { radius = fmap (\(_, y) -> tf (y / 1024)) mousePos }
 
-  asum [ blend x x b1 b2, on mouseClick ]
-
-  -- gptShader0 rectBuf defaultOpOptions $ GenSignal
-  --   ( #p0 =: cc 14 1 10
-  --   , #p1 =: cc 15 0 2
-  --   )
+  asum [ blend o o b1 b2, on mouseClick ]
 
   asum
-    [ gptShader0 x
+    [ gptShader0 o
         { p0 = fmap (\(x, _) -> ranged 1 10 0 1024 (tf x)) mousePos
         , p1 = fmap (\(_, y) -> ranged 1 10 0 1024 (tf y)) mousePos
         }
     , on mouseClick
     ]
 
-  sdf (trace x { maxIterations = ccValue 14 })
-    $ rotate x { axis = pure $ vec3 1 0 0, radians = fmap (\(_, y) -> tf (y / 100)) mousePos }
-    $ rotate x { axis = pure $ vec3 0 1 0, radians = fmap (\(x, _) -> tf (x / (-100))) mousePos }
-    $ box x { dimensions = pure $ vec3 0.5 0.5 0.3 }
+  sdf (trace o { maxIterations = ccValue 14 })
+    $ rotate o { axis = pure $ vec3 1 0 0, radians = fmap (\(_, y) -> tf (y / 100)) mousePos }
+    $ rotate o { axis = pure $ vec3 0 1 0, radians = fmap (\(x, _) -> tf (x / (-100))) mousePos }
+    $ box o { dimensions = pure $ vec3 0.5 0.5 0.3 }
 
   where
     ranged :: Float -> Float -> Float -> Float -> Float -> Float
@@ -217,7 +212,7 @@ main = do
          rectBuf <- createRectBuffer
          (blitToScreen, _) <- blit rectBuf (GL.Size 1024 1024)
 
-         flip runReaderT (OpContext x rectBuf) $ for_ mWin (go False mouseClick blitToScreen Nothing $ reinterpret $ runOp $ scene manager mouseClick mousePos (Signal $ fmap (\ccMap' ccId -> fromMaybe 0 $ M.lookup ccId ccMap') (readIORef ccMap)))
+         flip runReaderT (OpContext o rectBuf) $ for_ mWin (go False mouseClick blitToScreen Nothing $ reinterpret $ runOp $ scene manager mouseClick mousePos (Signal $ fmap (\ccMap' ccId -> fromMaybe 0 $ M.lookup ccId ccMap') (readIORef ccMap)))
 
   putStrLn "bye..."
 
@@ -226,9 +221,6 @@ main = do
       case severity of
         GL.DebugSeverityNotification -> pure ()
         _ -> traceIO $ show msg
-
-    tf :: Double -> Float
-    tf = realToFrac
 
     clicked :: Bool -> Bool -> Bool
     clicked False True = True

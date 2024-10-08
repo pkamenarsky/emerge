@@ -33,8 +33,8 @@ import GHC.TypeLits
 class Default a where
   def :: a
 
-x :: Default a => a
-x = def
+o :: Default a => a
+o = def
 
 newtype Texture (n :: Nat) = Texture (Maybe GL.TextureObject)
 

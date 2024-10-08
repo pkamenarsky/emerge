@@ -239,7 +239,7 @@ void main () {
     aspectRatio :: Float
     aspectRatio = fi (opWidth opts) / fi (opHeight opts)
 
-    (u, setParams) = shaderParams x params
+    (u, setParams) = shaderParams o params
 
 --------------------------------------------------------------------------------
 
