@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveTraversable #-}
@@ -13,6 +14,7 @@
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
@@ -44,11 +46,6 @@ import Data.Void
 
 --------------------------------------------------------------------------------
 
-newtype Time = Time Float
-  deriving (Eq, Ord)
-
---------------------------------------------------------------------------------
-
 newtype Texture (n :: Nat) = Texture (Maybe GL.TextureObject)
 
 data ShaderParamDeriveOpts = ShaderParamDeriveOpts
@@ -59,65 +56,143 @@ defaultShaderParamDeriveOpts :: ShaderParamDeriveOpts
 defaultShaderParamDeriveOpts = ShaderParamDeriveOpts id
 
 class GShaderParams f where                                                           
-  gShaderParams :: ShaderParamDeriveOpts -> GL.Program -> IO (f a -> IO ())
+  gShaderParams :: ShaderParamDeriveOpts -> ([(Text, Text)], GL.Program -> IO (f a -> IO ()))
 
-instance GShaderParams V1 where gShaderParams _ _ = pure $ \_ -> pure ()
-instance GShaderParams U1 where gShaderParams _ _ = pure $ \_ -> pure ()
-
-instance (GShaderParams a, GShaderParams b) => GShaderParams (a :*: b) where
-  gShaderParams opts program = do
-    setA <- gShaderParams opts program
-    setB <- gShaderParams opts program
-
-    pure $ \(a :*: b) -> setA a >> setB b
+instance GShaderParams V1 where gShaderParams _ = ([], \_ -> pure $ \_ -> pure ())
+instance GShaderParams U1 where gShaderParams _ = ([], \_ -> pure $ \_ -> pure ())
 
 instance GShaderParams a => GShaderParams (M1 C i a) where
-  gShaderParams opts program = do
-    set <- gShaderParams opts program
-    pure $ \(M1 a) -> set a
+  gShaderParams opts =
+    ( fields
+    , \program -> do
+         set <- init program
+         pure $ \(M1 a) -> set a
+    )
+    where
+      (fields, init) = gShaderParams opts
 
 instance GShaderParams a => GShaderParams (M1 D i a) where
-  gShaderParams opts program = do
-    set <- gShaderParams opts program
-    pure $ \(M1 a) -> set a
+  gShaderParams opts =
+    ( fields
+    , \program -> do
+         set <- init program
+         pure $ \(M1 a) -> set a
+    )
+    where
+      (fields, init) = gShaderParams opts
 
-instance {-# OVERLAPPABLE #-} (KnownSymbol name, GL.Uniform a) => GShaderParams (M1 S ('MetaSel ('Just name) u s t) (K1 i a)) where
-  gShaderParams opts program = do
-    loc <- GL.uniformLocation program n
-    
-    when (loc < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n <> " not found"
+instance (GShaderParams a, GShaderParams b) => GShaderParams (a :*: b) where
+  gShaderParams opts =
+    ( fieldsA <> fieldsB
+    , \program -> do
+         setA <- initA program
+         setB <- initB program
 
-    pure $ \(M1 (K1 a)) -> GL.uniform loc $= a
+         pure $ \(a :*: b) -> setA a >> setB b
+    )
+    where
+      (fieldsA, initA) = gShaderParams opts
+      (fieldsB, initB) = gShaderParams opts
+      
+
+instance {-# OVERLAPPABLE #-} (KnownSymbol name, GLSLType a, GL.Uniform a) => GShaderParams (M1 S ('MetaSel ('Just name) u s t) (K1 i (Signal a))) where
+  gShaderParams opts =
+    ( [(T.pack $ symbolVal $ Proxy @name, glslType $ Proxy @a)]
+    , \program -> do
+         loc <- GL.uniformLocation program n
+         when (loc < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n <> " not found"
+
+         pure $ \(M1 (K1 a)) -> signalValue a >>= (GL.uniform loc $=)
+    )
     where
       n = spFieldLabelModifier opts $ symbolVal $ Proxy @name
 
-instance {-# OVERLAPPING #-} (KnownSymbol name, KnownNat n) => GShaderParams (M1 S ('MetaSel ('Just name) u s t) (K1 i (Texture n))) where
-  gShaderParams opts program = do
-    loc <- GL.uniformLocation program n
-    
-    when (loc < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n <> " not found"
+instance {-# OVERLAPPING #-} (KnownSymbol name, KnownNat n) => GShaderParams (M1 S ('MetaSel ('Just name) u s t) (K1 i (Signal (Texture n)))) where
+  gShaderParams opts =
+    ( [(T.pack $ symbolVal $ Proxy @name, "sampler2D")]
+    , \program -> do
+         loc <- GL.uniformLocation program n
+         when (loc < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n <> " not found"
 
-    pure $ \(M1 (K1 (Texture tex))) -> do
-      GL.activeTexture $= GL.TextureUnit (fromInteger $ natVal $ Proxy @n)
-      GL.textureBinding GL.Texture2D $= tex
-      GL.uniform loc $= GL.TextureUnit (fromInteger $ natVal $ Proxy @n)
+         pure $ \(M1 (K1 a)) -> do
+           GL.activeTexture $= GL.TextureUnit (fromInteger $ natVal $ Proxy @n)
+           Texture tex <- signalValue a
+           GL.textureBinding GL.Texture2D $= tex
+           GL.uniform loc $= GL.TextureUnit (fromInteger $ natVal $ Proxy @n)
+    )
     where
       n = spFieldLabelModifier opts $ symbolVal $ Proxy @name
 
 class ShaderParams a where
-  shaderParams :: ShaderParamDeriveOpts -> GL.Program -> IO (a -> IO ())
-  default shaderParams :: Generic a => GShaderParams (Rep a) => ShaderParamDeriveOpts -> GL.Program -> IO (a -> IO ())
-  shaderParams opts program = do
-    set <- gShaderParams opts program
-    pure $ \a -> set (from a)
+  shaderParams :: ShaderParamDeriveOpts -> (ParamFields a, GL.Program -> IO (a -> IO ()))
+  -- default shaderParams :: Generic a => GShaderParams (Rep a) => ShaderParamDeriveOpts -> ([(Text, Text)], GL.Program -> IO (a -> IO ()))
+  -- shaderParams opts program = do
+  --   set <- gShaderParams opts program
+  --   pure $ \a -> set (from a)
 
 -- For shaders without uniforms
-instance ShaderParams ()
+instance ShaderParams () where
+  shaderParams opts = (ParamFields opts [], \_ -> pure $ \_ -> pure ())
 
-genericShaderParam :: Generic a => GShaderParams (Rep a) => ShaderParamDeriveOpts -> GL.Program -> IO (a -> IO ())
-genericShaderParam opts program = do
-  set <- gShaderParams opts program
-  pure $ \a -> set (from a)
+instance (Generic a, GShaderParams (Rep a)) => ShaderParams a where
+  shaderParams opts =
+    ( ParamFields opts fields
+    , \program -> do
+         set <- init program
+         pure $ \a -> set (from a)
+    )
+    where
+      (fields, init) = gShaderParams opts
+
+-- genericShaderParam :: Generic a => GShaderParams (Rep a) => ShaderParamDeriveOpts -> GL.Program -> IO (a -> IO ())
+-- genericShaderParam opts program = do
+--   set <- gShaderParams opts program
+--   pure $ \a -> set (from a)
+
+instance (GLSLType t, GL.Uniform t) => ShaderParams (Only t Values) where
+  shaderParams opts =
+    ( ParamFields opts [("par", glslType $ Proxy @t)]
+    , \program -> do
+         loc <- GL.uniformLocation program n
+         when (loc < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n <> " not found"
+
+         pure $ \(Only t) -> GL.uniform loc $= t
+    )
+    where
+      n = spFieldLabelModifier opts "par"
+
+--------------------------------------------------------------------------------
+
+class GGetField a s t | a s -> t where
+  gGetField :: a x -> Name s -> t
+
+instance GGetField V1 s Void where gGetField _ _ = undefined
+instance GGetField U1 s () where gGetField _ _ = ()
+instance GGetField a s t => GGetField (M1 D i a) s t where gGetField (M1 a) s = gGetField a s
+instance GGetField a s t => GGetField (M1 C i a) s t where gGetField (M1 a) s = gGetField a s
+
+instance GGetField (M1 S ('MetaSel ('Just s) i a b) (K1 r t) :*: g) s t where
+  gGetField (M1 (K1 t) :*: _) _ = t
+
+instance {-# OVERLAPPABLE #-} GGetField g s t => GGetField (f :*: g) s t where
+  gGetField (_ :*: g) s = gGetField g s
+
+instance GGetField (M1 S ('MetaSel ('Just s) i a b) (K1 r t)) s t where
+  gGetField (M1 (K1 t)) _ = t
+
+class GetField a s t | a s -> t where
+  getField :: a -> Name s -> t
+
+instance (Generic a, GGetField (Rep a) s t) => GetField a s t where
+  getField a s = gGetField (from a) s
+
+data Person = Person { name :: String, age :: Int, friends :: Bool }
+  deriving Generic
+
+person :: Person
+person = undefined
+
+aaaa = getField person #age
 
 --------------------------------------------------------------------------------
 
@@ -183,122 +258,112 @@ class NamedShaderParams a where
 
 -- Only ------------------------------------------------------------------------
 
-instance GL.Uniform t => ShaderParams (Only t Values) where
-  shaderParams opts program = do
-    loc <- GL.uniformLocation program n
-    
-    when (loc < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n <> " not found"
-
-    pure $ \(Only t) -> GL.uniform loc $= t
-    where
-      n = spFieldLabelModifier opts "u_par"
-
-instance GLSLType t => NamedShaderParams (Only t Fields) where
-  namedShaderParams opts = ([(glslType $ Proxy @t, T.pack n)], Only $ FieldName n)
-    where
-      n = spFieldLabelModifier opts "u_par"
+-- instance GLSLType t => NamedShaderParams (Only t Fields) where
+--   namedShaderParams opts = ([(glslType $ Proxy @t, T.pack n)], Only $ FieldName n)
+--     where
+--       n = spFieldLabelModifier opts "u_par"
 
 -- Param2 ----------------------------------------------------------------------
 
-instance (GL.Uniform t, GL.Uniform u) => ShaderParams (Params2 t u Values) where
-  shaderParams opts program = do
-    loc0 <- GL.uniformLocation program n0
-    loc1 <- GL.uniformLocation program n1
-    
-    when (loc0 < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n0 <> " not found"
-    when (loc1 < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n1 <> " not found"
-
-    pure $ \(Params2 t u) -> do
-      GL.uniform loc0 $= t
-      GL.uniform loc1 $= u
-    where
-      n0 = spFieldLabelModifier opts "u_par0"
-      n1 = spFieldLabelModifier opts "u_par1"
-
-instance (GLSLType t, GLSLType u) => NamedShaderParams (Params2 t u Fields) where
-  namedShaderParams opts =
-    ( [ (glslType $ Proxy @t, T.pack n0)
-      , (glslType $ Proxy @u, T.pack n1)
-      ]
-    , Params2 (FieldName n0) (FieldName n1)
-    )
-    where
-      n0 = spFieldLabelModifier opts "u_par0"
-      n1 = spFieldLabelModifier opts "u_par1"
-
--- Param3 ----------------------------------------------------------------------
-
-instance (GL.Uniform t, GL.Uniform u, GL.Uniform v) => ShaderParams (Params3 t u v Values) where
-  shaderParams opts program = do
-    loc0 <- GL.uniformLocation program n0
-    loc1 <- GL.uniformLocation program n1
-    loc2 <- GL.uniformLocation program n2
-    
-    when (loc0 < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n0 <> " not found"
-    when (loc1 < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n1 <> " not found"
-    when (loc2 < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n2 <> " not found"
-
-    pure $ \(Params3 t u v) -> do
-      GL.uniform loc0 $= t
-      GL.uniform loc1 $= u
-      GL.uniform loc2 $= v
-    where
-      n0 = spFieldLabelModifier opts "u_par0"
-      n1 = spFieldLabelModifier opts "u_par1"
-      n2 = spFieldLabelModifier opts "u_par2"
-
-instance (GLSLType t, GLSLType u, GLSLType v) => NamedShaderParams (Params3 t u v Fields) where
-  namedShaderParams opts =
-    ( [ (glslType $ Proxy @t, T.pack n0)
-      , (glslType $ Proxy @u, T.pack n1)
-      , (glslType $ Proxy @v, T.pack n2)
-      ]
-    , Params3 (FieldName n0) (FieldName n1) (FieldName n2)
-    )
-    where
-      n0 = spFieldLabelModifier opts "u_par0"
-      n1 = spFieldLabelModifier opts "u_par1"
-      n2 = spFieldLabelModifier opts "u_par2"
-
--- Param4 ----------------------------------------------------------------------
-
-instance (GL.Uniform t, GL.Uniform u, GL.Uniform v, GL.Uniform w) => ShaderParams (Params4 t u v w Values) where
-  shaderParams opts program = do
-    loc0 <- GL.uniformLocation program n0
-    loc1 <- GL.uniformLocation program n1
-    loc2 <- GL.uniformLocation program n2
-    loc3 <- GL.uniformLocation program n3
-    
-    when (loc0 < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n0 <> " not found"
-    when (loc1 < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n1 <> " not found"
-    when (loc2 < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n2 <> " not found"
-    when (loc3 < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n3 <> " not found"
-
-    pure $ \(Params4 t u v w) -> do
-      GL.uniform loc0 $= t
-      GL.uniform loc1 $= u
-      GL.uniform loc2 $= v
-      GL.uniform loc3 $= w
-    where
-      n0 = spFieldLabelModifier opts "u_par0"
-      n1 = spFieldLabelModifier opts "u_par1"
-      n2 = spFieldLabelModifier opts "u_par2"
-      n3 = spFieldLabelModifier opts "u_par3"
-
-instance (GLSLType t, GLSLType u, GLSLType v, GLSLType w) => NamedShaderParams (Params4 t u v w Fields) where
-  namedShaderParams opts =
-    ( [ (glslType $ Proxy @t, T.pack n0)
-      , (glslType $ Proxy @u, T.pack n1)
-      , (glslType $ Proxy @v, T.pack n2)
-      , (glslType $ Proxy @w, T.pack n3)
-      ]
-    , Params4 (FieldName n0) (FieldName n1) (FieldName n2) (FieldName n3)
-    )
-    where
-      n0 = spFieldLabelModifier opts "u_par0"
-      n1 = spFieldLabelModifier opts "u_par1"
-      n2 = spFieldLabelModifier opts "u_par2"
-      n3 = spFieldLabelModifier opts "u_par3"
+-- instance (GL.Uniform t, GL.Uniform u) => ShaderParams (Params2 t u Values) where
+--   shaderParams opts program = do
+--     loc0 <- GL.uniformLocation program n0
+--     loc1 <- GL.uniformLocation program n1
+--     
+--     when (loc0 < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n0 <> " not found"
+--     when (loc1 < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n1 <> " not found"
+-- 
+--     pure $ \(Params2 t u) -> do
+--       GL.uniform loc0 $= t
+--       GL.uniform loc1 $= u
+--     where
+--       n0 = spFieldLabelModifier opts "u_par0"
+--       n1 = spFieldLabelModifier opts "u_par1"
+-- 
+-- instance (GLSLType t, GLSLType u) => NamedShaderParams (Params2 t u Fields) where
+--   namedShaderParams opts =
+--     ( [ (glslType $ Proxy @t, T.pack n0)
+--       , (glslType $ Proxy @u, T.pack n1)
+--       ]
+--     , Params2 (FieldName n0) (FieldName n1)
+--     )
+--     where
+--       n0 = spFieldLabelModifier opts "u_par0"
+--       n1 = spFieldLabelModifier opts "u_par1"
+-- 
+-- -- Param3 ----------------------------------------------------------------------
+-- 
+-- instance (GL.Uniform t, GL.Uniform u, GL.Uniform v) => ShaderParams (Params3 t u v Values) where
+--   shaderParams opts program = do
+--     loc0 <- GL.uniformLocation program n0
+--     loc1 <- GL.uniformLocation program n1
+--     loc2 <- GL.uniformLocation program n2
+--     
+--     when (loc0 < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n0 <> " not found"
+--     when (loc1 < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n1 <> " not found"
+--     when (loc2 < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n2 <> " not found"
+-- 
+--     pure $ \(Params3 t u v) -> do
+--       GL.uniform loc0 $= t
+--       GL.uniform loc1 $= u
+--       GL.uniform loc2 $= v
+--     where
+--       n0 = spFieldLabelModifier opts "u_par0"
+--       n1 = spFieldLabelModifier opts "u_par1"
+--       n2 = spFieldLabelModifier opts "u_par2"
+-- 
+-- instance (GLSLType t, GLSLType u, GLSLType v) => NamedShaderParams (Params3 t u v Fields) where
+--   namedShaderParams opts =
+--     ( [ (glslType $ Proxy @t, T.pack n0)
+--       , (glslType $ Proxy @u, T.pack n1)
+--       , (glslType $ Proxy @v, T.pack n2)
+--       ]
+--     , Params3 (FieldName n0) (FieldName n1) (FieldName n2)
+--     )
+--     where
+--       n0 = spFieldLabelModifier opts "u_par0"
+--       n1 = spFieldLabelModifier opts "u_par1"
+--       n2 = spFieldLabelModifier opts "u_par2"
+-- 
+-- -- Param4 ----------------------------------------------------------------------
+-- 
+-- instance (GL.Uniform t, GL.Uniform u, GL.Uniform v, GL.Uniform w) => ShaderParams (Params4 t u v w Values) where
+--   shaderParams opts program = do
+--     loc0 <- GL.uniformLocation program n0
+--     loc1 <- GL.uniformLocation program n1
+--     loc2 <- GL.uniformLocation program n2
+--     loc3 <- GL.uniformLocation program n3
+--     
+--     when (loc0 < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n0 <> " not found"
+--     when (loc1 < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n1 <> " not found"
+--     when (loc2 < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n2 <> " not found"
+--     when (loc3 < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n3 <> " not found"
+-- 
+--     pure $ \(Params4 t u v w) -> do
+--       GL.uniform loc0 $= t
+--       GL.uniform loc1 $= u
+--       GL.uniform loc2 $= v
+--       GL.uniform loc3 $= w
+--     where
+--       n0 = spFieldLabelModifier opts "u_par0"
+--       n1 = spFieldLabelModifier opts "u_par1"
+--       n2 = spFieldLabelModifier opts "u_par2"
+--       n3 = spFieldLabelModifier opts "u_par3"
+-- 
+-- instance (GLSLType t, GLSLType u, GLSLType v, GLSLType w) => NamedShaderParams (Params4 t u v w Fields) where
+--   namedShaderParams opts =
+--     ( [ (glslType $ Proxy @t, T.pack n0)
+--       , (glslType $ Proxy @u, T.pack n1)
+--       , (glslType $ Proxy @v, T.pack n2)
+--       , (glslType $ Proxy @w, T.pack n3)
+--       ]
+--     , Params4 (FieldName n0) (FieldName n1) (FieldName n2) (FieldName n3)
+--     )
+--     where
+--       n0 = spFieldLabelModifier opts "u_par0"
+--       n1 = spFieldLabelModifier opts "u_par1"
+--       n2 = spFieldLabelModifier opts "u_par2"
+--       n3 = spFieldLabelModifier opts "u_par3"
 
 --------------------------------------------------------------------------------
 
@@ -543,26 +608,26 @@ field (ParamFields opts _) _ = spFieldLabelModifier opts $ symbolVal @s Proxy
 
 --------------------------------------------------------------------------------
 
-class GetField params s t | params s -> t where
-  getField :: HList params -> Name s -> t
-
-instance TypeError ('Text "No such field: " ':<>: 'Text s) => GetField '[] s Void where
-  getField _ _ = undefined
-
-instance {-# OVERLAPPING #-} GetField (Param s t ': ps) s t where
-  getField (Param t :. _) _ = t
-
-instance GetField ps s t => GetField (Param k u ': ps) s t where
-  getField (_ :. ps) s = getField ps s
-
-params0 = (#abc =: float 5, #def =: float 6)
-
-instance (FromTuples tuples (HList params), GetField params s t) => IsLabel s (tuples -> t) where
-  fromLabel = \tuples -> getField (fromTuples tuples) (Name @s)
-
-get' :: FromTuples tuples (HList params) => GetField params s t => tuples -> Name s -> t
-get' tuples s = getField (fromTuples tuples) s
-
-f = getField (fromTuples params0) (Name @"def")
-
-f' = #abc params0
+-- class GetField params s t | params s -> t where
+--   getField :: HList params -> Name s -> t
+-- 
+-- instance TypeError ('Text "No such field: " ':<>: 'Text s) => GetField '[] s Void where
+--   getField _ _ = undefined
+-- 
+-- instance {-# OVERLAPPING #-} GetField (Param s t ': ps) s t where
+--   getField (Param t :. _) _ = t
+-- 
+-- instance GetField ps s t => GetField (Param k u ': ps) s t where
+--   getField (_ :. ps) s = getField ps s
+-- 
+-- params0 = (#abc =: float 5, #def =: float 6)
+-- 
+-- instance (FromTuples tuples (HList params), GetField params s t) => IsLabel s (tuples -> t) where
+--   fromLabel = \tuples -> getField (fromTuples tuples) (Name @s)
+-- 
+-- get' :: FromTuples tuples (HList params) => GetField params s t => tuples -> Name s -> t
+-- get' tuples s = getField (fromTuples tuples) s
+-- 
+-- f = getField (fromTuples params0) (Name @"def")
+-- 
+-- f' = #abc params0
