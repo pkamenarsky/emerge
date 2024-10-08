@@ -59,17 +59,13 @@ import Debug.Trace
 
 --------------------------------------------------------------------------------
 
-data BlitParams = BlitParams
-  { blitSource :: Texture 0
-  } deriving Generic
-
-instance ShaderParams BlitParams where
-
 blit :: RectBuffer -> GL.Size -> IO (GL.TextureObject -> IO (), IO ())
 blit rectBuf viewport@(GL.Size width height) = do
   (attribs, bindShader, destroyShader) <- createShader Nothing fragT
   (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
-  setParams <- shaderParams defaultShaderParamDeriveOpts (saProgram attribs)
+
+  bindShader
+  loc <- GL.uniformLocation (saProgram attribs) "tex"
 
   pure
     ( \tex -> do
@@ -79,7 +75,10 @@ blit rectBuf viewport@(GL.Size width height) = do
         GL.bindFramebuffer GL.Framebuffer $= GL.defaultFramebufferObject
 
         bindShader
-        setParams $ BlitParams (Texture $ Just tex)
+        
+        GL.activeTexture $= GL.TextureUnit 0
+        GL.textureBinding GL.Texture2D $= Just tex
+        GL.uniform loc $= GL.TextureUnit 0
         
         drawRect
 
@@ -89,11 +88,11 @@ blit rectBuf viewport@(GL.Size width height) = do
     ) 
   where
     fragT = [i|
-uniform sampler2D blitSource;
+uniform sampler2D tex;
 
 void main() {
   vec2 uv = gl_FragCoord.xy / vec2(#{width}, #{height});
-  gl_FragColor = texture2D(blitSource, uv);
+  gl_FragColor = texture2D(tex, uv);
 } |]
 
 -- Ops (fill) ------------------------------------------------------------------
@@ -102,44 +101,42 @@ data FillParams = FillParams
   { foColor :: GL.Color4 Float
   } deriving Generic
 
-instance ShaderParams FillParams where
+-- fill :: RectBuffer -> OpOptions -> IO (Op FillParams)
+-- fill rectBuf opts = do
+--   (tex, bindFBO, destroyFBO) <- createFramebuffer opts
+--   (attribs, bindShader, destroyShader) <- createShader Nothing fragT
+--   let (fields, init) = shaderParams defaultShaderParamDeriveOpts
+-- 
+--   (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
+-- 
+--   pure $ Op
+--     { opTex = tex
+--     , opRender = \params -> do
+--         bindFBO
+--         bindShader
+--         setParams params
+--         drawRect
+--     , opDestroy = do
+--         destroyFBO
+--         destroyShader
+--         destroyDrawRect
+--     }
+--   where
+--     fragT = [i|
+-- uniform vec4 foColor;
+-- 
+-- void main() {
+--   gl_FragColor = foColor;
+-- } |]
 
-fill :: RectBuffer -> OpOptions -> IO (Op FillParams)
-fill rectBuf opts = do
-  (tex, bindFBO, destroyFBO) <- createFramebuffer opts
-  (attribs, bindShader, destroyShader) <- createShader Nothing fragT
-  setParams <- shaderParams defaultShaderParamDeriveOpts (saProgram attribs)
-
-  (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
-
-  pure $ Op
-    { opTex = tex
-    , opRender = \params -> do
-        bindFBO
-        bindShader
-        setParams params
-        drawRect
-    , opDestroy = do
-        destroyFBO
-        destroyShader
-        destroyDrawRect
-    }
-  where
-    fragT = [i|
-uniform vec4 foColor;
-
-void main() {
-  gl_FragColor = foColor;
-} |]
-
-fillSyn :: MonadIO m => RectBuffer -> OpOptions -> Signal FillParams -> Syn [Out] m a
-fillSyn rectBuf opts params = do
-  Op tex render destroy <- unsafeNonBlockingIO $ fill rectBuf opts
-
-  finalize (liftIO destroy) $ view $ pure $ Out
-    { outTex = tex
-    , outRender = signalValue params >>= render
-    }
+-- fillSyn :: MonadIO m => RectBuffer -> OpOptions -> Signal FillParams -> Syn [Out] m a
+-- fillSyn rectBuf opts params = do
+--   Op tex render destroy <- unsafeNonBlockingIO $ fill rectBuf opts
+-- 
+--   finalize (liftIO destroy) $ view $ pure $ Out
+--     { outTex = tex
+--     , outRender = signalValue params >>= render
+--     }
 
 -- Ops (circle) ----------------------------------------------------------------
 
@@ -147,8 +144,8 @@ data CircleOpts = CircleOpts { antialias :: Bool }
 data CircleUniforms = CircleUniforms
   { radius :: Signal Float
   , color :: Signal Color4
-  , center :: Signal Float
-  }
+  , center :: Signal Vec2
+  } deriving Generic
 
 data BlendUniforms = BlendUniforms
   { center :: Vec2
@@ -159,7 +156,13 @@ class Default a where
 
 instance Default CircleOpts where def = CircleOpts { antialias = True }
 instance Default BlendUniforms where def = BlendUniforms { center = vec2 0 0 }
-instance Default CircleUniforms where def = CircleUniforms { center = undefined }
+
+instance Default CircleUniforms where
+  def = CircleUniforms
+    { radius = pure $ float 0.5
+    , color = pure $ color4 1 1 1 1
+    , center = pure $ vec2 0.5 0.5
+    }
 
 o :: Default a => a
 o = def
@@ -172,7 +175,7 @@ blenddd = center
 
 bla = blenddd x {center = vec2 1 1}
 
-circleee :: CircleOpts -> CircleUniforms -> Signal Float
+circleee :: CircleOpts -> CircleUniforms -> Signal Vec2
 circleee _ = center
 
 bla2 = circleee x {antialias = False} x {center = undefined}
@@ -212,6 +215,41 @@ void main() {
   float alpha = smoothstep(#{field udefs #radius} - delta, #{field udefs #radius}, dist);
 
   gl_FragColor = #{field udefs #color} * (1. - alpha);
+} |]
+
+-- circleSyn'
+--   :: MonadIO m
+--   => SubParams [Param "radius" Float, Param "color" Color4, Param "center" Vec2] params x y
+-- 
+--   => RectBuffer
+--   -> OpOptions
+--   -> params
+-- --  -> GenSignal
+-- --       [ Param "radius" Float
+-- --       , Param "color" (GL.Color4 Float)
+-- --       , Param "center" (GL.Vector2 Float)
+-- --       ]
+--   -> Syn [Out] m a
+circleSyn' :: MonadIO m => RectBuffer -> OpOptions -> CircleUniforms -> Syn [Out] m a
+circleSyn' rectBuffer opts = genShaderSyn'' rectBuffer opts defaultShaderParamDeriveOpts fragT
+  where
+    -- def =
+    --   ( #radius =: float 0.5
+    --   , #color  =: color4 1 1 1 1
+    --   , #center =: vec2 0.5 0.5
+    --   )
+    fragT udefs = [i|
+
+#{formatParamUniforms udefs}
+
+void main() {
+  vec2 uv = gl_FragCoord.xy / #{resVec2 opts}.xy;
+
+  float dist = distance(uv, #{uniform' udefs #center});
+  float delta = fwidth(dist);
+  float alpha = smoothstep(#{uniform' udefs #radius} - delta, #{uniform' udefs #radius}, dist);
+
+  gl_FragColor = #{uniform' udefs #color} * (1. - alpha);
 } |]
 
 -- Ops (blend) -----------------------------------------------------------------

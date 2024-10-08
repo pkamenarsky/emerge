@@ -3,6 +3,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedLabels #-}
@@ -30,6 +31,8 @@ import qualified Graphics.Rendering.OpenGL as GL
 import Common
 import Syn
 import Types
+
+import GHC.Generics
 
 data GenOp params = GenOp
   { gopTex :: GL.TextureObject
@@ -140,6 +143,151 @@ genShader2 rectBuf opts deriveOpts tuples fragT = do
     }
 
 data GenSignal params = forall subtuples subparams subsigparams. (FromTuples subtuples (HList subsigparams), SeqParams subsigparams subparams, Params subparams, SubSet subparams params ~ 'True) => GenSignal subtuples
+
+genShaderSyn''
+  :: MonadIO m
+  => ShaderParams params
+
+  => RectBuffer
+  -> OpOptions
+  -> ShaderParamDeriveOpts
+  -> (ParamFields params -> Text)
+  -> params
+  -> Syn [Out] m a
+genShaderSyn'' rectBuf opts deriveOpts fragT params = do
+  (out, destroy) <- unsafeNonBlockingIO $ do
+    (tex, bindFBO, destroyFBO) <- createFramebuffer opts
+    let (fields, initUniforms) = shaderParams deriveOpts
+    (attribs, bindShader, destroyShader) <- createShader Nothing (fragT fields)
+
+    bindShader
+    setUniforms <- initUniforms (saProgram attribs)
+
+    (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
+
+    pure
+      ( Out
+          { outTex = tex
+          , outRender = do
+              bindFBO
+              bindShader
+              setUniforms params
+              drawRect
+          }
+      , do
+          destroyFBO
+          destroyShader
+          destroyDrawRect
+      )
+
+  finalize (liftIO destroy) $ view [out]
+
+data Syn1 = Syn1 { tex0 :: Signal (Texture 0) }
+  deriving Generic
+
+genShaderSyn1''
+  :: MonadIO m
+  => ShaderParams params
+
+  => RectBuffer
+  -> OpOptions
+  -> ShaderParamDeriveOpts
+  -> (ParamFields params -> ParamFields Syn1 -> Text)
+  -> params
+  -> Syn [Out] m a
+  -> Syn [Out] m a
+genShaderSyn1'' rectBuf opts deriveOpts fragT params syn = do
+  (f, destroy) <- unsafeNonBlockingIO $ do
+    (tex, bindFBO, destroyFBO) <- createFramebuffer opts
+
+    let (fields, initUniforms) = shaderParams deriveOpts
+    let (fieldsSrc, initUniformsSrc) = shaderParams deriveOpts
+
+    (attribs, bindShader, destroyShader) <- createShader Nothing (fragT fields fieldsSrc)
+
+    bindShader
+    setUniforms <- initUniforms (saProgram attribs)
+    setUniformsSrc <- initUniformsSrc (saProgram attribs)
+
+    (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
+
+    pure
+      ( \[out] -> Out
+          { outTex = tex
+          , outRender = do
+              outRender out
+
+              bindFBO
+              bindShader
+
+              setUniforms params
+              setUniformsSrc $ Syn1 { tex0 = pure $ Texture (Just $ outTex out) }
+
+              drawRect
+          }
+      , do
+          destroyFBO
+          destroyShader
+          destroyDrawRect
+      )
+
+  finalize (liftIO destroy) $ mapView (pure . f) syn
+
+data Syn2 = Syn2 { tex0 :: Signal (Texture 0), tex1 :: Signal (Texture 1) }
+  deriving Generic
+
+genShaderSyn2''
+  :: MonadIO m
+  => ShaderParams params
+
+  => RectBuffer
+  -> OpOptions
+  -> ShaderParamDeriveOpts
+  -> (ParamFields params -> ParamFields Syn2 -> Text)
+  -> params
+  -> Syn [Out] m a
+  -> Syn [Out] m a
+  -> Syn [Out] m a
+genShaderSyn2'' rectBuf opts deriveOpts fragT params syn1 syn2 = do
+  (f, destroy) <- unsafeNonBlockingIO $ do
+    (tex, bindFBO, destroyFBO) <- createFramebuffer opts
+
+    let (fields, initUniforms) = shaderParams deriveOpts
+    let (fieldsSrc, initUniformsSrc) = shaderParams deriveOpts
+
+    (attribs, bindShader, destroyShader) <- createShader Nothing (fragT fields fieldsSrc)
+
+    bindShader
+    setUniforms <- initUniforms (saProgram attribs)
+    setUniformsSrc <- initUniformsSrc (saProgram attribs)
+
+    (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
+
+    pure
+      ( \[out1, out2] -> Out
+          { outTex = tex
+          , outRender = do
+              outRender out1
+              outRender out2
+
+              bindFBO
+              bindShader
+
+              setUniforms params
+              setUniformsSrc $ Syn2
+                { tex0 = pure $ Texture (Just $ outTex out1)
+                , tex1 = pure $ Texture (Just $ outTex out2)
+                }
+
+              drawRect
+          }
+      , do
+          destroyFBO
+          destroyShader
+          destroyDrawRect
+      )
+
+  finalize (liftIO destroy) $ mapView (pure . f) $ asum [ syn1, syn2 ]
 
 genShaderSyn
   :: MonadIO m

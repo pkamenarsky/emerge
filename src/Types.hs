@@ -112,7 +112,7 @@ instance (GShaderParams a, GShaderParams b) => GShaderParams (a :*: b) where
 
 instance {-# OVERLAPPABLE #-} (KnownSymbol name, GLSLType a, GL.Uniform a) => GShaderParams (M1 S ('MetaSel ('Just name) u s t) (K1 i (Signal a))) where
   gShaderParams opts =
-    ( [(T.pack $ symbolVal $ Proxy @name, glslType $ Proxy @a)]
+    ( [(glslType $ Proxy @a, T.pack $ symbolVal $ Proxy @name)]
     , \program -> do
          loc <- GL.uniformLocation program n
          when (loc < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n <> " not found"
@@ -124,7 +124,7 @@ instance {-# OVERLAPPABLE #-} (KnownSymbol name, GLSLType a, GL.Uniform a) => GS
 
 instance {-# OVERLAPPING #-} (KnownSymbol name, KnownNat n) => GShaderParams (M1 S ('MetaSel ('Just name) u s t) (K1 i (Signal (Texture n)))) where
   gShaderParams opts =
-    ( [(T.pack $ symbolVal $ Proxy @name, "sampler2D")]
+    ( [("sampler2D", T.pack $ symbolVal $ Proxy @name)]
     , \program -> do
          loc <- GL.uniformLocation program n
          when (loc < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n <> " not found"
@@ -141,10 +141,6 @@ instance {-# OVERLAPPING #-} (KnownSymbol name, KnownNat n) => GShaderParams (M1
 class ShaderParams a where
   shaderParams :: ShaderParamDeriveOpts -> (ParamFields a, GL.Program -> IO (a -> IO ()))
 
--- For shaders without uniforms
-instance ShaderParams () where
-  shaderParams opts = (ParamFields opts [], \_ -> pure $ \_ -> pure ())
-
 instance (Generic a, GShaderParams (Rep a)) => ShaderParams a where
   shaderParams opts =
     ( ParamFields opts fields
@@ -154,18 +150,6 @@ instance (Generic a, GShaderParams (Rep a)) => ShaderParams a where
     )
     where
       (fields, init) = gShaderParams opts
-
-instance (GLSLType t, GL.Uniform t) => ShaderParams (Only t Values) where
-  shaderParams opts =
-    ( ParamFields opts [("par", glslType $ Proxy @t)]
-    , \program -> do
-         loc <- GL.uniformLocation program n
-         when (loc < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n <> " not found"
-
-         pure $ \(Only t) -> GL.uniform loc $= t
-    )
-    where
-      n = spFieldLabelModifier opts "par"
 
 --------------------------------------------------------------------------------
 
@@ -196,16 +180,6 @@ instance (Generic a, GGetField (Rep a) s t) => GetField a s t where
 
 uniform' :: forall a s t. (KnownSymbol s, GetField a s t) => ParamFields a -> Name s -> String
 uniform' (ParamFields opts _) _ = spFieldLabelModifier opts $ symbolVal $ Proxy @s
-
---------------------------------------------------------------------------------
-
-data Person = Person { name :: String, age :: Int, friends :: Bool }
-  deriving Generic
-
-person :: Person
-person = undefined
-
-aaaa = getField person #age
 
 --------------------------------------------------------------------------------
 

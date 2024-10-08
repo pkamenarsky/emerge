@@ -156,12 +156,12 @@ scene manager rectBuf mouseClick mousePos ccMap = do
           -- , #color  =: (pure (color4 1 1 1 1) :: Signal (GL.Color4 Float))
           )
       b2 = 
-        void $ circleSyn rectBuf defaultOpOptions
-          ( #radius =: fmap (\(x, y) -> tf (y / 1024)) mousePos
+        void $ circleSyn' rectBuf defaultOpOptions x
+          { radius = fmap (\(x, y) -> tf (y / 1024)) mousePos
+          }
           -- ( #radius =: cc 14 0 0.5
           -- , #color  =: color4 <$> cc 15 0 1 <*> cc 16 0 1 <*> cc 17 0 1 <*> pure 1
           -- , #color  =: (pure (color4 1 1 1 1) :: Signal (GL.Color4 Float))
-          )
   asum [ blendSyn rectBuf defaultOpOptions defaultBlendOptions (GenSignal ()) b1 b2, on mouseClick ]
 
   -- gptShader0 rectBuf defaultOpOptions $ GenSignal
