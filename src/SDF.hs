@@ -197,7 +197,7 @@ vec3 getNormal(vec3 pos) {
 }
 
 void main () {
-  vec2 uv = gl_FragCoord.xy / #{resVec2 opts});
+  vec2 uv = gl_FragCoord.xy / #{resVec2 opts};
 
   vec2 pos = uv - 0.5;
   pos.x *= #{aspectRatio};

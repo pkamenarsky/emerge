@@ -147,26 +147,9 @@ on = Op . Run.on
 
 scene :: Manager -> Event () -> Signal (Double, Double) -> Signal (Word8 -> Word8) -> Op a
 scene manager mouseClick mousePos ccMap = do
-  -- asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.05), on mouseClick ]
-  -- asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.1), on mouseClick ]
-  -- asum [ void $ circleSyn rectBuf defaultOpOptions (circleParams 0.15), on mouseClick ]
+  let b1 = circle x { radius = fmap (\(x, y) -> tf (x / 1024)) mousePos }
+      b2 = circle x { radius = fmap (\(x, y) -> tf (y / 1024)) mousePos }
 
-  -- xform rectBuf defaultOpOptions (postImage manager) $ asum
-  let b1 = 
-        void $ circle x
-          { radius = fmap (\(x, y) -> tf (x / 1024)) mousePos
-          -- ( #radius =: cc 14 0 0.5
-          -- , #color  =: color4 <$> cc 15 0 1 <*> cc 16 0 1 <*> cc 17 0 1 <*> pure 1
-          -- , #color  =: (pure (color4 1 1 1 1) :: Signal (GL.Color4 Float))
-          }
-      b2 = 
-        void $ circle x
-          { radius = fmap (\(x, y) -> tf (y / 1024)) mousePos
-          }
-          -- ( #radius =: cc 14 0 0.5
-          -- , #color  =: color4 <$> cc 15 0 1 <*> cc 16 0 1 <*> cc 17 0 1 <*> pure 1
-          -- , #color  =: (pure (color4 1 1 1 1) :: Signal (GL.Color4 Float))
-  -- asum [ blendSyn rectBuf defaultOpOptions defaultBlendOptions (GenSignal ()) b1 b2, on mouseClick ]
   asum [ blend x x b1 b2, on mouseClick ]
 
   -- gptShader0 rectBuf defaultOpOptions $ GenSignal
@@ -174,26 +157,20 @@ scene manager mouseClick mousePos ccMap = do
   --   , #p1 =: cc 15 0 2
   --   )
 
-  -- xform rectBuf defaultOpOptions (postImage manager) $ gptShader0 rectBuf defaultOpOptions $ GenSignal
-  gptShader0 x
-    { p0 = fmap (\(x, _) -> ranged 1 10 0 1024 (tf x)) mousePos
-    , p1 = fmap (\(_, y) -> ranged 1 10 0 1024 (tf y)) mousePos
-    }
+  asum
+    [ gptShader0 x
+        { p0 = fmap (\(x, _) -> ranged 1 10 0 1024 (tf x)) mousePos
+        , p1 = fmap (\(_, y) -> ranged 1 10 0 1024 (tf y)) mousePos
+        }
+    , on mouseClick
+    ]
 
-  -- gptShader1 rectBuf defaultOpOptions (Params4 <$> ccValue 14 <*> fmap (toRange 0 1) (ccValue 15) <*> fmap (toRange 0 20) (ccValue 16) <*> fmap (toRange 0.1 5) (ccValue 17))
-
-  -- sdfSyn rectBuf defaultOpOptions
-  --   (trace traceParams)
-  --   (rotate rotateY $ rotate rotateX $ box (pure $ BoxParams (GL.Vector3 0.5 0.5 0.3)))
-  -- blendSyn rectBuf defaultBlendOptions (pure $ BlendParamsSyn 0.5)
-  --   (fillSyn rectBuf defaultOpOptions fillParams)
-  --   (circleSyn rectBuf defaultOpOptions (circleParams 0.15))
+  sdf (trace x { maxIterations = ccValue 14 })
+    $ rotate x { axis = pure $ vec3 1 0 0, radians = fmap (\(_, y) -> tf (y / 100)) mousePos }
+    $ rotate x { axis = pure $ vec3 0 1 0, radians = fmap (\(x, _) -> tf (x / (-100))) mousePos }
+    $ box x { dimensions = pure $ vec3 0.5 0.5 0.3 }
 
   where
-    -- traceParams = fmap (\c -> defaultTraceParams { tpMaxIterations = fi c, tpFresnelBase = 1, tpFresnelExp = 2 }) cc
-    -- traceParams :: Signal (TraceParams Values)
-    -- traceParams = TraceParams <$> ccValue 14 <*> fmap (toRange 0.5 2) (ccValue 15) <*> fmap (toRange 1 5) (ccValue 16) <*> fmap (toRange 0 1) (ccValue 17)
-
     ranged :: Float -> Float -> Float -> Float -> Float -> Float
     ranged a b c d x = a + (b - a) * ((x - c) / (d - c))
 
@@ -205,23 +182,6 @@ scene manager mouseClick mousePos ccMap = do
 
     ccValue :: Num a => Word8 -> Signal a
     ccValue ccId = fmap fromIntegral (ccMap <*> pure ccId)
-
-    -- rotateX :: Signal (RotateParams Values)
-    -- rotateX = fmap (\(x, _) -> RotateParams (GL.Vector3 0 1 0) (tf $ x / (-100))) mousePos
-
-    -- rotateY :: Signal (RotateParams Values)
-    -- rotateY = fmap (\(_, y) -> RotateParams (GL.Vector3 1 0 0) (tf $ y / 100)) mousePos
-
-    fi = fromIntegral
-    tf = realToFrac
-
-    -- fillParams = flip fmap mousePos $ \(mx, my) -> FillParams
-    --   (GL.Color4 (tf $ mx / 1024.0) (tf $ my / 1024.0) 1 1) 
-
-    -- circleParams radius = flip fmap mousePos $ \(mx, my) -> CircleParams
-    --   (GL.Color4 (tf $ mx / 1024.0) (tf $ my / 1024.0) 1 1) 
-    --   (GL.Vertex2 (tf $ mx / 1024.0) (1 - tf (my / 1024.0)))
-    --   radius
 
 main :: IO ()
 main = do

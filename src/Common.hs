@@ -62,6 +62,9 @@ import Debug.Trace
 
 --------------------------------------------------------------------------------
 
+tf :: Real a => Fractional b => a -> b
+tf = realToFrac
+
 fi :: (Integral a, Num b) => a -> b
 fi = fromIntegral
 
