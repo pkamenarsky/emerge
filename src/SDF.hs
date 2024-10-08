@@ -165,18 +165,18 @@ union sdfA sdfB = SDF $ \pos -> do
 --------------------------------------------------------------------------------
 
 data TraceUniforms = TraceUniforms
-  { max_iterations :: Signal GLint
-  , fresnel_base :: Signal Float
-  , fresnel_exp :: Signal Float
-  , mix_factor :: Signal Float
+  { maxIterations :: Signal GLint
+  , fresnelBase :: Signal Float
+  , fresnelExp :: Signal Float
+  , mixFactor :: Signal Float
   } deriving Generic
 
 instance Default TraceUniforms where
   def = TraceUniforms
-    { max_iterations = pure 64
-    , fresnel_base = pure 1
-    , fresnel_exp = pure 5
-    , mix_factor = pure 0.5
+    { maxIterations = pure 64
+    , fresnelBase = pure 1
+    , fresnelExp = pure 5
+    , mixFactor = pure 0.5
     }
 
 trace
@@ -199,7 +199,7 @@ vec3 getNormal(vec3 pos) {
 }
 
 void main () {
-  vec2 uv = gl_FragCoord.xy / vec2(#{opWidth opts}, #{opHeight opts});
+  vec2 uv = gl_FragCoord.xy / #{resVec2 opts});
 
   vec2 pos = uv - 0.5;
   pos.x *= #{aspectRatio};
@@ -211,7 +211,7 @@ void main () {
   float tMax = 5.;
 
   for (int i = 0; i < 64; ++i) {
-      if (i >= #{uniform u #max_iterations}) break;
+      if (i >= #{uniform u #maxIterations}) break;
 
       vec3 currentPos = camPos + (t * ray);
       float h = sdf(currentPos);
@@ -227,10 +227,10 @@ void main () {
     vec3 normal = getNormal(currentPos);
     // float diff = dot(vec3(1.0), normal);
 
-    float fresnel = pow(#{uniform u #fresnel_base} + dot(ray, normal), #{uniform u #fresnel_exp});
+    float fresnel = pow(#{uniform u #fresnelBase} + dot(ray, normal), #{uniform u #fresnelExp});
 
     // color = vec3(dot(ray, normal));
-    color = mix(color, vec3(#{uniform u #mix_factor}), fresnel);
+    color = mix(color, vec3(#{uniform u #mixFactor}), fresnel);
   }
 
   gl_FragColor = vec4(color, 1.0);
