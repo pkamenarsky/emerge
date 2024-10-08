@@ -34,15 +34,13 @@ import Data.Text (Text)
 import Data.Type.Bool
 import qualified Data.Text as T
 import Data.Word
+import Data.Void
 
 import qualified Graphics.Rendering.OpenGL as GL
 
 import GHC.Generics (Generic, Rep, V1, U1 (U1), (:*:) ((:*:)), C, D, K1 (K1), M1 (M1), S, Meta (MetaSel), from, to)
 import GHC.OverloadedLabels
 import GHC.TypeLits
-
-
-import Data.Void
 
 --------------------------------------------------------------------------------
 

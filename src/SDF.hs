@@ -267,42 +267,31 @@ compile eval sdf = (compileDefs, setParams)
 
 --------------------------------------------------------------------------------
 
-sdfOp :: RectBuffer -> OpOptions -> (OpOptions -> SDFEval) -> SDF -> IO (Op ())
-sdfOp rectBuf opts eval sdf = do
-  (tex, bindFBO, destroyFBO) <- createFramebuffer opts
-  (attribs, bindShader, destroyShader) <- createShader Nothing fragT
+sdf :: MonadIO m => RectBuffer -> OpOptions -> (OpOptions -> SDFEval) -> SDF -> Syn [Out] m a
+sdf rectBuf opts eval sdf = do
+  (out, destroy) <- unsafeNonBlockingIO $ do
+    (tex, bindFBO, destroyFBO) <- createFramebuffer opts
+    (attribs, bindShader, destroyShader) <- createShader Nothing fragT
 
-  set <- setParams (saProgram attribs)
+    set <- setParams (saProgram attribs)
 
-  (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
+    (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
 
-  pure $ Op
-    { opTex = tex
-    , opRender = \_ -> do
-        bindFBO
-        bindShader
-        set
-        drawRect
-    , opDestroy = do
-        destroyFBO
-        destroyShader
-        destroyDrawRect
-    }
+    pure
+      ( Out
+          { outTex = tex
+          , outRender = do
+              bindFBO
+              bindShader
+              set
+              drawRect
+          }
+      , do
+         destroyFBO
+         destroyShader
+         destroyDrawRect
+      )
+
+  finalize (liftIO destroy) $ view [out]
   where
     (fragT, setParams) = compile (eval opts) sdf
-
-sdfSyn :: MonadIO m => RectBuffer -> OpOptions -> (OpOptions -> SDFEval) -> SDF -> Syn [Out] m a
-sdfSyn rectBuf opts eval sdf = do
-  Op tex render destroy <- unsafeNonBlockingIO $ sdfOp rectBuf opts eval sdf
-
-  finalize (liftIO destroy) $ view $ pure $ Out
-    { outTex = tex
-    , outRender = render ()
-    }
-
---------------------------------------------------------------------------------
-
-testSDF = fst $ compile (trace undefined defaultOpOptions) $ union u1 u1
-  where
-    u1 = union (box undefined) (translate undefined $ box undefined)
-  

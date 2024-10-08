@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
@@ -11,6 +12,7 @@ import Control.Concurrent
 import Control.Concurrent.MVar
 import Control.Monad
 import Control.Monad.IO.Class
+import Control.Monad.Trans.Reader
 import qualified Control.Monad.Trans.State as ST
 
 import Codec.Picture
@@ -94,21 +96,23 @@ data ShaderAttribs = ShaderAttribs
   , saProgram :: GL.Program
   }
 
-data Op params = Op
-  { opTex :: GL.TextureObject
-  , opRender :: params -> IO ()
-  , opDestroy :: IO ()
-  }
-
 data Out = Out
   { outTex :: GL.TextureObject
   , outRender :: IO ()
   }
 
+data OpContext = OpContext
+  { ctxOptions :: OpOptions
+  , ctxRectBuf :: GL.BufferObject
+  }
+
+newtype Op a = Op { runOp :: Syn [Out] (ReaderT OpContext IO) a }
+  deriving (Functor, Applicative, Monad)
+
 --------------------------------------------------------------------------------
 
-createRectBuffer :: IO RectBuffer
-createRectBuffer = RectBuffer <$> do
+createRectBuffer :: IO GL.BufferObject
+createRectBuffer = do
   buf <- genObjectName
   GL.bindBuffer GL.ArrayBuffer $= Just buf
   withArrayLen verts $ \len ptr -> GL.bufferData GL.ArrayBuffer $= (fi (len * fsz), ptr, GL.StaticDraw)
@@ -128,8 +132,8 @@ createRectBuffer = RectBuffer <$> do
       ,  1,  1, 0,   1, 1
       ]
 
-createDrawRect :: RectBuffer -> ShaderAttribs -> IO (IO (), IO ())
-createDrawRect (RectBuffer buf) sattrs = do
+createDrawRect :: GL.BufferObject -> ShaderAttribs -> IO (IO (), IO ())
+createDrawRect buf sattrs = do
   vao <- genObjectName
 
   GL.bindVertexArrayObject $= Just vao

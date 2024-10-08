@@ -18,6 +18,7 @@ module Gen where
 
 import Control.Monad.IO.Class
 import           Control.Monad.Trans.Class (lift)
+import           Control.Monad.Trans.Reader
 import qualified Control.Monad.Trans.State as ST
 import qualified Control.Monad.Trans.Writer.CPS as W
 
@@ -155,6 +156,41 @@ genShaderSyn''
   -> params
   -> Syn [Out] m a
 genShaderSyn'' rectBuf opts deriveOpts fragT params = do
+  (out, destroy) <- unsafeNonBlockingIO $ do
+    (tex, bindFBO, destroyFBO) <- createFramebuffer opts
+    let (fields, initUniforms) = shaderParams deriveOpts
+    (attribs, bindShader, destroyShader) <- createShader Nothing (fragT fields)
+
+    bindShader
+    setUniforms <- initUniforms (saProgram attribs)
+
+    (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
+
+    pure
+      ( Out
+          { outTex = tex
+          , outRender = do
+              bindFBO
+              bindShader
+              setUniforms params
+              drawRect
+          }
+      , do
+          destroyFBO
+          destroyShader
+          destroyDrawRect
+      )
+
+  finalize (liftIO destroy) $ view [out]
+
+genShaderSyn'''
+  :: ShaderParams params
+  => ShaderParamDeriveOpts
+  -> (ParamFields params -> Text)
+  -> params
+  -> Op a
+genShaderSyn''' deriveOpts fragT params = Op $ do
+  OpContext opts rectBuf <- lift ask
   (out, destroy) <- unsafeNonBlockingIO $ do
     (tex, bindFBO, destroyFBO) <- createFramebuffer opts
     let (fields, initUniforms) = shaderParams deriveOpts
