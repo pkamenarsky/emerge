@@ -36,8 +36,6 @@ class Default a where
 o :: Default a => a
 o = def
 
-newtype Texture (n :: Nat) = Texture (Maybe GL.TextureObject)
-
 --------------------------------------------------------------------------------
 
 class GLSLType t where glslType :: Proxy t -> Text
@@ -160,9 +158,6 @@ float = id
 
 int :: GL.GLint -> GL.GLint
 int = id
-
-texture :: Maybe GL.TextureObject -> Texture n
-texture = Texture
 
 --------------------------------------------------------------------------------
 
