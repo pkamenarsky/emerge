@@ -67,7 +67,7 @@ box (GenSignal params) = SDF $ \pos -> do
   let opts = defaultShaderParamDeriveOpts
         { spFieldLabelModifier = (T.unpack prefix <>)
         }
-      (udefs, getUniforms) = shaderParams'' opts $ O $ #dimensions =: vec3 0.5 0.5 0.5
+      (udefs, getUniforms) = shaderParams'' opts $ #dimensions =: vec3 0.5 0.5 0.5
 
   W.tell $ pure $ SDFDef
     { sdfIncludes = ["assets/lygia/sdf/boxSDF.glsl"]
@@ -90,7 +90,7 @@ translate (GenSignal params) sdf = SDF $ \pos -> do
   let opts = defaultShaderParamDeriveOpts
         { spFieldLabelModifier = (T.unpack prefix <>)
         }
-      (udefs, getUniforms) = shaderParams'' opts $ O $ #translate =: vec3 0 0 0
+      (udefs, getUniforms) = shaderParams'' opts $ #translate =: vec3 0 0 0
 
   W.tell $ pure $ SDFDef
     { sdfIncludes = []

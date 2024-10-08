@@ -144,15 +144,18 @@ fillSyn rectBuf opts params = do
 
 circleSyn
   :: MonadIO m
+  => SubParams [Param "radius" Float, Param "color" Color4, Param "center" Vec2] params x y
+
   => RectBuffer
   -> OpOptions
-  -> GenSignal
-       [ Param "radius" Float
-       , Param "color" (GL.Color4 Float)
-       , Param "center" (GL.Vector2 Float)
-       ]
+  -> params
+--  -> GenSignal
+--       [ Param "radius" Float
+--       , Param "color" (GL.Color4 Float)
+--       , Param "center" (GL.Vector2 Float)
+--       ]
   -> Syn [Out] m a
-circleSyn rectBuffer opts = genShaderSyn rectBuffer opts defaultShaderParamDeriveOpts def fragT
+circleSyn rectBuffer opts = genShaderSyn' rectBuffer opts defaultShaderParamDeriveOpts def fragT
   where
     def =
       ( #radius =: float 0.5
@@ -195,7 +198,7 @@ blendSyn
   -> Syn [Out] m a
 blendSyn rectBuffer opts blendOpts = genShaderSyn2 rectBuffer opts defaultShaderParamDeriveOpts def fragT
   where
-    def = O (#factor =: float 0.5)
+    def = #factor =: float 0.5
     fragT udefs = [i|
 #{formatParamUniforms udefs}
 
@@ -218,7 +221,7 @@ xform :: MonadIO m => RectBuffer -> OpOptions -> (BL.ByteString -> IO B.ByteStri
 xform rectBuf opts io s = do
   (tex', bindFBO, bindShader, uniforms) <- unsafeNonBlockingIO $ do
     (tex', bindFBO, destroyFBO) <- createFramebuffer opts
-    let (udefs, getUniforms) = shaderParams'' defaultShaderParamDeriveOpts $ O $ #tex =: texture @0 (Just tex')
+    let (udefs, getUniforms) = shaderParams'' defaultShaderParamDeriveOpts $ #tex =: texture @0 (Just tex')
     (attribs, bindShader, destroyShader) <- createShader Nothing (fragT udefs)
 
     bindShader
@@ -248,7 +251,7 @@ void main() {
                  image <- io bs
                  bindFBO
                  bindShader
-                 set uniforms $ fromTuples $ O $ #tex =: texture @0 (Just tex')
+                 set uniforms $ fromTuples $ #tex =: texture @0 (Just tex')
                  writeImageToTexture tex' image
                Left e -> error e
          }

@@ -305,6 +305,9 @@ newtype Signal a = Signal (IO a)
 signalValue :: MonadIO m => Signal a -> m a
 signalValue (Signal v) = liftIO v
 
+signalValueIO :: Signal a -> IO a
+signalValueIO (Signal v) = v
+
 --------------------------------------------------------------------------------
 
 infixr 5 :.
@@ -346,13 +349,11 @@ type family SubSet (xs :: [k]) (ys :: [k]) :: Bool where
 
 --------------------------------------------------------------------------------
 
-newtype O a = O a
-
 class FromTuples tuples hlist | tuples -> hlist where
   fromTuples :: tuples -> hlist
 
 instance FromTuples () (HList '[]) where fromTuples () = Nil
-instance FromTuples (O a) (HList '[a]) where fromTuples (O a) = a :. Nil
+instance FromTuples (Param s t) (HList '[Param s t]) where fromTuples p = p :. Nil
 instance FromTuples (a, b) (HList '[a, b]) where fromTuples (a, b) = a :. b :. Nil
 instance FromTuples (a, b, c) (HList '[a, b, c]) where fromTuples (a, b, c) = a :. b :. c :. Nil
 instance FromTuples (a, b, c, d) (HList '[a, b, c, d]) where fromTuples (a, b, c, d) = a :. b :. c :. d :. Nil

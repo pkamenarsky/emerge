@@ -149,14 +149,14 @@ scene manager rectBuf mouseClick mousePos ccMap = do
 
   -- xform rectBuf defaultOpOptions (postImage manager) $ asum
   let b1 = 
-        void $ circleSyn rectBuf defaultOpOptions $ GenSignal $ O
+        void $ circleSyn rectBuf defaultOpOptions
           ( #radius =: fmap (\(x, y) -> tf (x / 1024)) mousePos
           -- ( #radius =: cc 14 0 0.5
           -- , #color  =: color4 <$> cc 15 0 1 <*> cc 16 0 1 <*> cc 17 0 1 <*> pure 1
           -- , #color  =: (pure (color4 1 1 1 1) :: Signal (GL.Color4 Float))
           )
       b2 = 
-        void $ circleSyn rectBuf defaultOpOptions $ GenSignal $ O
+        void $ circleSyn rectBuf defaultOpOptions
           ( #radius =: fmap (\(x, y) -> tf (y / 1024)) mousePos
           -- ( #radius =: cc 14 0 0.5
           -- , #color  =: color4 <$> cc 15 0 1 <*> cc 16 0 1 <*> cc 17 0 1 <*> pure 1

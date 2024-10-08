@@ -1,4 +1,5 @@
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -144,6 +145,7 @@ genShaderSyn
   :: MonadIO m
   => FromTuples tuples (HList params)
   => Params params
+
   => RectBuffer
   -> OpOptions
   -> ShaderParamDeriveOpts
@@ -152,6 +154,46 @@ genShaderSyn
   -> GenSignal params
   -> Syn [Out] m a
 genShaderSyn rectBuf opts deriveOpts tuples fragT (GenSignal signal) = do
+  GenOp tex render destroy <- unsafeNonBlockingIO $ genShader rectBuf opts deriveOpts tuples fragT
+
+  finalize (liftIO destroy) $ view $ pure $ Out
+    { outTex = tex
+    , outRender = seqParams (fromTuples signal) >>= render
+    }
+
+-- type SubParams params subtuples =
+--   forall subparams subsigparams.
+--   (  FromTuples subtuples (HList subsigparams)
+--   => SeqParams subsigparams subparams
+--   => Params subparams
+--   => SubSet subparams params ~ 'True
+--   )
+
+type SubParams params subtuples subparams subsigparams =
+    ( FromTuples subtuples (HList subsigparams)
+    , SeqParams subsigparams subparams
+    , Params subparams
+    , SubSet subparams params ~ 'True
+    )
+
+genShaderSyn'
+  :: MonadIO m
+  => FromTuples tuples (HList params)
+  => Params params
+
+  => FromTuples subtuples (HList subsigparams)
+  => SeqParams subsigparams subparams
+  => Params subparams
+  => SubSet subparams params ~ 'True
+
+  => RectBuffer
+  -> OpOptions
+  -> ShaderParamDeriveOpts
+  -> tuples
+  -> (ParamFields params -> Text)
+  -> subtuples
+  -> Syn [Out] m a
+genShaderSyn' rectBuf opts deriveOpts tuples fragT signal = do
   GenOp tex render destroy <- unsafeNonBlockingIO $ genShader rectBuf opts deriveOpts tuples fragT
 
   finalize (liftIO destroy) $ view $ pure $ Out
