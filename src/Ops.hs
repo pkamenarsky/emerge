@@ -42,13 +42,12 @@ blit rectBuf viewport@(GL.Size width height) = do
 
   pure
     ( \tex -> do
-        GL.viewport $= (GL.Position 0 0, viewport)
-        GL.clearColor $= GL.Color4 0 0 0 0
-
         GL.bindFramebuffer GL.Framebuffer $= GL.defaultFramebufferObject
+        GL.viewport $= (GL.Position 0 0, viewport)
 
         bindShader
         
+        putStrLn "binding from blit"
         GL.uniform loc $= TexUniform @0 (Just tex)
         
         drawRect
@@ -63,7 +62,9 @@ uniform sampler2D tex;
 
 void main() {
   vec2 uv = gl_FragCoord.xy / vec2(#{width}, #{height});
-  gl_FragColor = texture2D(tex, uv);
+  vec4 t = texture2D(tex, uv);
+  // gl_FragColor = t;
+  gl_FragColor = vec4(t.rgb * t.a, 1.);
 } |]
 
 -- Ops (feedback) --------------------------------------------------------------
@@ -74,7 +75,7 @@ feedback x = Op $ do
 
   ref <- unsafeNonBlockingIO $ newIORef Nothing
 
-  (out, destroy) <- unsafeNonBlockingIO $ do
+  (out, copy, destroy) <- unsafeNonBlockingIO $ do
     (tex, bindFBO, destroyFBO) <- createFramebuffer opts
     (attribs, bindShader, destroyShader) <- createShader Nothing (fragT opts)
     (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
@@ -83,29 +84,29 @@ feedback x = Op $ do
     loc <- GL.uniformLocation (saProgram attribs) "tex"
 
     pure
-      ( Out
-         { outRender = do
-             bindFBO
-             bindShader
+      ( Out { outRender = putStrLn $ "render fix, tex: " <> show tex, outTex = tex }
+      , \fixtex -> do
+          bindFBO
+          bindShader
 
-             fixtex <- readIORef ref
-             GL.uniform loc $= TexUniform @0 fixtex
+          putStrLn "binding from copy"
+          GL.uniform loc $= TexUniform @0 (Just fixtex)
 
-             drawRect
-         , outTex = tex
-         }
+          drawRect
       , do
           destroyFBO
           destroyDrawRect
           destroyShader
       )
 
-  finalize (liftIO destroy) $ mapView (pure . f ref) $ runOp $ x $ Op $ view [out]
+  finalize (liftIO destroy) $ mapView (pure . f copy) $ runOp $ x $ Op $ view [out]
   where
-    f ref [out] = Out
+    f copy [out] = Out
       { outRender = do
-          writeIORef ref (Just $ outTex out)
+          putStrLn "render result"
           outRender out
+          putStrLn "copy to fix"
+          copy (outTex out)
       , outTex = outTex out
       }
 
@@ -170,7 +171,7 @@ void main() {
 
 -- Ops (blend) -----------------------------------------------------------------
 
-data BlendMode = Add | Mul
+data BlendMode = Add | Mul | Over
 
 data BlendOptions = BlendOptions
   { mode :: BlendMode
@@ -190,8 +191,16 @@ blend :: BlendOptions -> BlendUniforms -> Op a -> Op a -> Op a
 blend opts = shader2 o fragT
   where
     modeFrag u tex0 tex1 = t $ case mode opts of
-      Add -> [i|  gl_FragColor = texture2D(#{tex0}, uv) * #{uniform u #factor} + texture2D(#{tex1}, uv) * (1. - #{uniform u #factor});|]
-      Mul -> [i|  gl_FragColor = texture2D(#{tex0}, uv) * #{uniform u #factor} * texture2D(#{tex1}, uv) * (1. - #{uniform u #factor});|]
+      Add  -> [i|  gl_FragColor = texture2D(#{tex0}, uv) * #{uniform u #factor} + texture2D(#{tex1}, uv) * (1. - #{uniform u #factor});|]
+      -- TODO: this is prob not right
+      Mul  -> [i|  gl_FragColor = texture2D(#{tex0}, uv) * #{uniform u #factor} * texture2D(#{tex1}, uv) * (1. - #{uniform u #factor});|]
+      Over -> [i|
+  vec4 t0 = texture2D(#{tex0}, uv);
+  vec4 t1 = texture2D(#{tex1}, uv);
+
+  float a = t1.a + t0.a * (1. - t1.a);
+  gl_FragColor = vec4((t1.rgb * t1.a + t0.rgb * t0.a * (1. - t1.a)) / a, a);
+|]
 
     fragT opOpts u tex0 tex1 = [i|
 #{formatParamUniforms u}

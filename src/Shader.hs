@@ -161,7 +161,9 @@ shader2 deriveOpts fragT params op0 op1 = Op $ do
       ( \[out0, out1] -> Out
           { outTex = tex
           , outRender = do
+              putStrLn "render0"
               outRender out0
+              putStrLn "render1"
               outRender out1
 
               bindFBO
@@ -172,6 +174,7 @@ shader2 deriveOpts fragT params op0 op1 = Op $ do
 
               setUniforms
 
+              putStrLn $ "blend to " <> show tex
               drawRect
           }
       , do

@@ -157,6 +157,9 @@ createFramebuffer opts = do
   GL.bindFramebuffer GL.Framebuffer $= fbo
   GL.framebufferTexture2D GL.Framebuffer (GL.ColorAttachment 0) GL.Texture2D tex 0
 
+  GL.clearColor $= GL.Color4 0 1 0 1
+  GL.clear [ GL.ColorBuffer ]
+
   pure (tex, bind fbo, destroy fbo tex)
 
   where

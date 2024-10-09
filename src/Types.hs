@@ -40,18 +40,6 @@ o = def
 
 --------------------------------------------------------------------------------
 
-class GLSLType t where glslType :: Proxy t -> Text
-
-instance GLSLType GL.GLint where glslType _ = "int"
-instance GLSLType Float where glslType _ = "float"
-instance GLSLType Double where glslType _ = "double"
-instance GLSLType (GL.Vector2 Float) where glslType _ = "vec2"
-instance GLSLType (GL.Vector3 Float) where glslType _ = "vec3"
-instance GLSLType (GL.Vector4 Float) where glslType _ = "vec4"
-instance GLSLType (GL.Color4 Float) where glslType _ = "vec4"
-
---------------------------------------------------------------------------------
-
 data ShaderParamDeriveOpts = ShaderParamDeriveOpts
   { spFieldLabelModifier :: String -> String
   }
@@ -89,7 +77,9 @@ instance (KnownSymbol name, GLSLType a, GL.Uniform a) => GShaderParams (M1 S ('M
     ( [(glslType $ Proxy @a, T.pack $ symbolVal $ Proxy @name)]
     , \program -> do
          loc <- GL.uniformLocation program n
-         when (loc < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> n <> " not found"
+
+         when (loc < GL.UniformLocation 0) $
+           putStrLn $ "WARNING: gShaderParams: uniform " <> n <> " not found"
 
          pure $ signalValue a >>= (GL.uniform loc $=)
     )
@@ -138,6 +128,16 @@ type Vec4 = GL.Vector4 Float
 type Color4 = GL.Color4 Float
 type GLint = GL.GLint
 
+class GLSLType t where glslType :: Proxy t -> Text
+
+instance GLSLType GL.GLint where glslType _ = "int"
+instance GLSLType Float where glslType _ = "float"
+instance GLSLType Double where glslType _ = "double"
+instance GLSLType Vec2 where glslType _ = "vec2"
+instance GLSLType Vec3 where glslType _ = "vec3"
+instance GLSLType Vec4 where glslType _ = "vec4"
+instance GLSLType Color4 where glslType _ = "vec4"
+
 vec2 :: Float -> Float -> Vec2
 vec2 = GL.Vector2
 
@@ -172,6 +172,7 @@ instance KnownNat n => GL.Uniform (TexUniform n) where
         GL.activeTexture $= GL.TextureUnit (fromIntegral $ natVal $ Proxy @n)
         fmap TexUniform $ GL.get $ GL.textureBinding GL.Texture2D
       set (TexUniform tex) = do
+        putStrLn $ "binding " <> show (natVal $ Proxy @n) <> " to " <> show tex
         GL.activeTexture $= GL.TextureUnit (fromIntegral $ natVal $ Proxy @n)
         GL.textureBinding GL.Texture2D $= tex
         GL.uniform loc $= GL.TextureUnit (fromIntegral $ natVal $ Proxy @n)

@@ -150,7 +150,8 @@ scene _manager mouseClick mousePos ccMap = do
   let b1 = circle o { radius = fmap (\(x, _) -> tf (x / 1024)) mousePos }
       b2 = circle o { radius = fmap (\(_, y) -> tf (y / 1024)) mousePos }
 
-  asum [ blend o o b1 b2, on mouseClick ]
+  -- feedback $ \r -> blend o o r $ asum [ blend o o b1 b2, on mouseClick ]
+  feedback $ \r -> blend o o r b1
 
   asum
     [ gptShader0 o
@@ -160,7 +161,7 @@ scene _manager mouseClick mousePos ccMap = do
     , on mouseClick
     ]
 
-  sdf (trace o { maxIterations = ccValue 14 })
+  sdf (trace o { maxIterations = pure 2 })
     $ rotate o { axis = pure $ vec3 1 0 0, radians = fmap (\(_, y) -> tf (y / 100)) mousePos }
     $ rotate o { axis = pure $ vec3 0 1 0, radians = fmap (\(x, _) -> tf (x / (-100))) mousePos }
     $ box o { dimensions = pure $ vec3 0.5 0.5 0.3 }
@@ -212,7 +213,7 @@ main = do
          rectBuf <- createRectBuffer
          (blitToScreen, _) <- blit rectBuf (GL.Size 1024 1024)
 
-         flip runReaderT (OpContext o rectBuf) $ for_ mWin (go False mouseClick blitToScreen Nothing $ reinterpret $ runOp $ scene manager mouseClick mousePos (Signal $ fmap (\ccMap' ccId -> fromMaybe 0 $ M.lookup ccId ccMap') (readIORef ccMap)))
+         flip runReaderT (OpContext o rectBuf) $ for_ mWin (go False False mouseClick blitToScreen Nothing $ reinterpret $ runOp $ scene manager mouseClick mousePos (Signal $ fmap (\ccMap' ccId -> fromMaybe 0 $ M.lookup ccId ccMap') (readIORef ccMap)))
 
   putStrLn "bye..."
 
@@ -230,30 +231,40 @@ main = do
     maybeHead (a:_) = Just a
     maybeHead _ = Nothing
 
-    go :: Bool -> Event () -> (GL.TextureObject -> IO ()) -> Maybe Out -> Run [Out] (ReaderT OpContext IO) Void -> GLFW.Window -> ReaderT OpContext IO ()
-    go mouseButtonSt e@(Event mouseClick) blitToScreen mOut run win = do
+    go :: Bool -> Bool -> Event () -> (GL.TextureObject -> IO ()) -> Maybe Out -> Run [Out] (ReaderT OpContext IO) Void -> GLFW.Window -> ReaderT OpContext IO ()
+    go mouseButtonSt rightSt' e@(Event mouseClick) blitToScreen mOut run win = do
       st <- liftIO $ GLFW.getMouseButton win GLFW.MouseButton'1
+      rightSt <- liftIO $ GLFW.getMouseButton win GLFW.MouseButton'2
 
       mouseButtonSt' <- case st of
         GLFW.MouseButtonState'Pressed -> pure True
         _ -> pure False
 
-      if clicked mouseButtonSt mouseButtonSt'
-        then liftIO $ writeIORef mouseClick (Just ())
-        else pure ()
+      rightSt'' <- case rightSt of
+        GLFW.MouseButtonState'Pressed -> pure True
+        _ -> pure False
 
-      (next, rOut) <- unblock run
+      (mOut', next') <- if clicked rightSt' rightSt''
+        then do
+          if clicked mouseButtonSt mouseButtonSt'
+            then liftIO $ writeIORef mouseClick (Just ())
+            else pure ()
 
-      liftIO $ writeIORef mouseClick Nothing
+          (next, rOut) <- unblock run
 
-      -- [0]
-      (next', rOut') <- unblock next
+          liftIO $ writeIORef mouseClick Nothing
 
-      let mOut' = asum [rOut' >>= maybeHead, rOut >>= maybeHead, mOut]
+          -- [0]
+          (next', rOut') <- unblock next
 
-      liftIO $ for_ mOut' $ \out -> do
-        outRender out
-        blitToScreen (outTex out)
+          let mOut' = asum [rOut' >>= maybeHead, rOut >>= maybeHead, mOut]
+
+          liftIO $ for_ mOut' $ \out -> do
+            outRender out
+            blitToScreen (outTex out)
+
+          pure (mOut', next')
+        else pure (mOut, run)
 
       liftIO $ GLFW.swapBuffers win
 
@@ -265,4 +276,4 @@ main = do
         then pure ()
         else do
           liftIO $ GLFW.pollEvents
-          go mouseButtonSt' e blitToScreen mOut' next' win
+          go mouseButtonSt' rightSt'' e blitToScreen mOut' next' win
