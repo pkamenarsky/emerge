@@ -4,7 +4,7 @@
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE QuasiQuotes #-}
 
-module Render where
+module Ops where
 
 import Control.Monad
 import Control.Monad.IO.Class
@@ -20,8 +20,8 @@ import Data.Text (Text)
 import qualified Graphics.Rendering.OpenGL as GL
 
 import Common
+import Shader
 import Syn
-import Gen
 
 import GHC.Generics
 

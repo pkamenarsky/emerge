@@ -7,7 +7,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Gen where
+module Shader where
 
 import Control.Monad (when)
 import Control.Monad.IO.Class

@@ -26,9 +26,9 @@ source-repository head
 library
   exposed-modules:
       Common
-      Gen
-      Render
+      Ops
       SDF
+      Shader
       Syn
       Syn.Run
       Syn.Threads

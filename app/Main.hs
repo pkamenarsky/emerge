@@ -32,9 +32,9 @@ import Network.HTTP.Client
 -- import Network.HTTP.Client.MultipartFormData
 
 import Common
-import Gen
+import Shader
+import Ops
 import Types
-import Render
 import SDF
 
 import Syn
