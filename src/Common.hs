@@ -8,26 +8,20 @@
 module Common where
 
 import Control.Applicative
-import Control.Concurrent
-import Control.Concurrent.MVar
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Reader
 import qualified Control.Monad.Trans.State as ST
 
 import Codec.Picture
-import Codec.Picture.Types
 
 import qualified Data.Array.IO as A
 import qualified Data.Array.Storable as A
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
-import Data.ByteString (ByteString)
 import Data.Foldable
-import Data.IORef
 import Data.ObjectName
 import Data.Maybe (fromMaybe)
-import Data.Machine.MealyT
 import Data.StateVar
 import qualified Data.Set as S
 import Data.String.Interpolate (i)
@@ -39,17 +33,13 @@ import qualified Data.Vector.Storable as V
 
 import Foreign.ForeignPtr (newForeignPtr_)
 import Foreign.Ptr
-import Foreign.C.Types
 import Foreign.Marshal.Array
-import Foreign.Marshal.Alloc
 import Foreign.Storable
 
 import qualified Graphics.Rendering.OpenGL as GL
 
 import Syn
-import Syn.Run
 
-import GHC.Generics
 import GHC.Int
 import GHC.Word
 
@@ -57,8 +47,6 @@ import System.FilePath ((</>))
 import qualified System.FilePath as Path
 
 import Types
-
-import Debug.Trace
 
 --------------------------------------------------------------------------------
 

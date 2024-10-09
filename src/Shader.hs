@@ -24,6 +24,7 @@ import Common
 import Syn
 import Types
 
+--------------------------------------------------------------------------------
 
 shader0
   :: ShaderParams params
