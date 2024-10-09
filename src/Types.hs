@@ -125,6 +125,7 @@ formatParamUniforms paramFields = T.intercalate "\n"
 type Vec2 = GL.Vector2 Float
 type Vec3 = GL.Vector3 Float
 type Vec4 = GL.Vector4 Float
+type Color3 = GL.Color3 Float
 type Color4 = GL.Color4 Float
 type GLint = GL.GLint
 
@@ -136,6 +137,7 @@ instance GLSLType Double where glslType _ = "double"
 instance GLSLType Vec2 where glslType _ = "vec2"
 instance GLSLType Vec3 where glslType _ = "vec3"
 instance GLSLType Vec4 where glslType _ = "vec4"
+instance GLSLType Color3 where glslType _ = "vec3"
 instance GLSLType Color4 where glslType _ = "vec4"
 
 vec2 :: Float -> Float -> Vec2
@@ -146,6 +148,14 @@ vec3 = GL.Vector3
 
 vec4 :: Float -> Float -> Float -> Float -> Vec4
 vec4 = GL.Vector4
+
+color3 :: Float -> Float -> Float -> Color3
+color3 = GL.Color3
+
+rgb :: Word8 -> Word8 -> Word8 -> Color3
+rgb r g b = GL.Color3 (c r) (c g) (c b)
+  where
+    c x = fromIntegral x / 255.0
 
 color4 :: Float -> Float -> Float -> Float -> Color4
 color4 = GL.Color4
@@ -172,7 +182,6 @@ instance KnownNat n => GL.Uniform (TexUniform n) where
         GL.activeTexture $= GL.TextureUnit (fromIntegral $ natVal $ Proxy @n)
         fmap TexUniform $ GL.get $ GL.textureBinding GL.Texture2D
       set (TexUniform tex) = do
-        putStrLn $ "binding " <> show (natVal $ Proxy @n) <> " to " <> show tex
         GL.activeTexture $= GL.TextureUnit (fromIntegral $ natVal $ Proxy @n)
         GL.textureBinding GL.Texture2D $= tex
         GL.uniform loc $= GL.TextureUnit (fromIntegral $ natVal $ Proxy @n)

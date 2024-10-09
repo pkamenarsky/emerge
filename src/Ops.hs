@@ -47,7 +47,6 @@ blit rectBuf viewport@(GL.Size width height) = do
 
         bindShader
         
-        putStrLn "binding from blit"
         GL.uniform loc $= TexUniform @0 (Just tex)
         
         drawRect
@@ -84,12 +83,11 @@ feedback x = Op $ do
     loc <- GL.uniformLocation (saProgram attribs) "tex"
 
     pure
-      ( Out { outRender = putStrLn $ "render fix, tex: " <> show tex, outTex = tex }
+      ( Out { outRender = pure (), outTex = tex }
       , \fixtex -> do
           bindFBO
           bindShader
 
-          putStrLn "binding from copy"
           GL.uniform loc $= TexUniform @0 (Just fixtex)
 
           drawRect
@@ -103,9 +101,7 @@ feedback x = Op $ do
   where
     f copy [out] = Out
       { outRender = do
-          putStrLn "render result"
           outRender out
-          putStrLn "copy to fix"
           copy (outTex out)
       , outTex = outTex out
       }

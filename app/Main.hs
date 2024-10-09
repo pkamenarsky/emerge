@@ -150,10 +150,9 @@ scene _manager mouseClick mousePos ccMap = do
   let b1 = circle o { radius = fmap (\(x, _) -> tf (x / 1024)) mousePos }
       b2 = circle o { radius = fmap (\(_, y) -> tf (y / 1024)) mousePos }
 
-  -- feedback $ \r -> blend o o r $ asum [ blend o o b1 b2, on mouseClick ]
-  feedback $ \r -> blend o o r b1
+  feedback $ \r -> blend o o { factor = pure 0.01 } r $ asum [ blend o o b1 b2, on mouseClick ]
 
-  asum
+  feedback $ \r -> blend o o { factor = pure 0.01 } r $ asum
     [ gptShader0 o
         { p0 = fmap (\(x, _) -> ranged 1 10 0 1024 (tf x)) mousePos
         , p1 = fmap (\(_, y) -> ranged 1 10 0 1024 (tf y)) mousePos
@@ -161,7 +160,7 @@ scene _manager mouseClick mousePos ccMap = do
     , on mouseClick
     ]
 
-  sdf (trace o { maxIterations = pure 2 })
+  feedback $ \r -> blend o o { factor = pure 0.05 } r $ sdf (trace o { maxIterations = pure 2, clearColor = color3 <$> cc 14 0 1 <*> cc 15 0 1 <*> cc 16 0 1 })
     $ rotate o { axis = pure $ vec3 1 0 0, radians = fmap (\(_, y) -> tf (y / 100)) mousePos }
     $ rotate o { axis = pure $ vec3 0 1 0, radians = fmap (\(x, _) -> tf (x / (-100))) mousePos }
     $ box o { dimensions = pure $ vec3 0.5 0.5 0.3 }
@@ -218,6 +217,8 @@ main = do
   putStrLn "bye..."
 
   where
+    frameByFrame = False
+
     dbg msg@(GL.DebugMessage _ _ _ severity _) = do
       case severity of
         GL.DebugSeverityNotification -> pure ()
@@ -244,7 +245,7 @@ main = do
         GLFW.MouseButtonState'Pressed -> pure True
         _ -> pure False
 
-      (mOut', next') <- if clicked rightSt' rightSt''
+      (mOut', next') <- if not frameByFrame || clicked rightSt' rightSt''
         then do
           if clicked mouseButtonSt mouseButtonSt'
             then liftIO $ writeIORef mouseClick (Just ())

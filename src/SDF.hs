@@ -167,6 +167,7 @@ data TraceUniforms = TraceUniforms
   , fresnelBase :: Signal Float
   , fresnelExp :: Signal Float
   , mixFactor :: Signal Float
+  , clearColor :: Signal Color3
   } deriving Generic
 
 instance Default TraceUniforms where
@@ -175,6 +176,7 @@ instance Default TraceUniforms where
     , fresnelBase = pure 1
     , fresnelExp = pure 5
     , mixFactor = pure 0.5
+    , clearColor = pure $ color3 0 0 0
     }
 
 trace
@@ -218,7 +220,7 @@ void main () {
       t += h;
   }
 
-  vec3 color = vec3(0.0, 0.0, 0.0);
+  vec3 color = #{uniform u #clearColor};
 
   if (t < tMax) {
     vec3 currentPos = camPos + (t * ray);
