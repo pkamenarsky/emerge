@@ -5,6 +5,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Shader where
@@ -103,9 +104,7 @@ shader1 deriveOpts fragT params op0 = Op $ do
               bindFBO
               bindShader
 
-              GL.activeTexture $= GL.TextureUnit 0
-              GL.textureBinding GL.Texture2D $= Just (outTex out)
-              GL.uniform loc0 $= GL.TextureUnit 0
+              GL.uniform loc0 $= TexUniform @0 (Just (outTex out))
 
               setUniforms
 
@@ -168,13 +167,8 @@ shader2 deriveOpts fragT params op0 op1 = Op $ do
               bindFBO
               bindShader
 
-              GL.activeTexture $= GL.TextureUnit 0
-              GL.textureBinding GL.Texture2D $= Just (outTex out0)
-              GL.uniform loc0 $= GL.TextureUnit 0
-
-              GL.activeTexture $= GL.TextureUnit 1
-              GL.textureBinding GL.Texture2D $= Just (outTex out1)
-              GL.uniform loc0 $= GL.TextureUnit 1
+              GL.uniform loc0 $= TexUniform @0 (Just (outTex out0))
+              GL.uniform loc1 $= TexUniform @1 (Just (outTex out1))
 
               setUniforms
 

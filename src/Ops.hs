@@ -1,7 +1,9 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedLabels #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE QuasiQuotes #-}
 
 module Ops where
@@ -11,6 +13,7 @@ import Control.Monad.IO.Class
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader
 
+import Data.IORef
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import Data.StateVar
@@ -46,9 +49,7 @@ blit rectBuf viewport@(GL.Size width height) = do
 
         bindShader
         
-        GL.activeTexture $= GL.TextureUnit 0
-        GL.textureBinding GL.Texture2D $= Just tex
-        GL.uniform loc $= GL.TextureUnit 0
+        GL.uniform loc $= TexUniform @0 (Just tex)
         
         drawRect
 
@@ -62,6 +63,56 @@ uniform sampler2D tex;
 
 void main() {
   vec2 uv = gl_FragCoord.xy / vec2(#{width}, #{height});
+  gl_FragColor = texture2D(tex, uv);
+} |]
+
+-- Ops (feedback) --------------------------------------------------------------
+
+feedback :: (Op a -> Op a) -> Op a
+feedback x = Op $ do
+  ref <- unsafeNonBlockingIO $ newIORef Nothing
+  OpContext opts rectBuf <- lift ask
+
+  (out, destroy) <- unsafeNonBlockingIO $ do
+    (tex, bindFBO, destroyFBO) <- createFramebuffer opts
+    (attribs, bindShader, destroyShader) <- createShader Nothing (fragT opts)
+    (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
+
+    bindShader
+    loc <- GL.uniformLocation (saProgram attribs) "tex"
+
+    pure
+      ( Out
+         { outRender = do
+             bindFBO
+             bindShader
+
+             fixtex <- readIORef ref
+             GL.uniform loc $= TexUniform @0 fixtex
+
+             drawRect
+         , outTex = tex
+         }
+      , do
+          destroyFBO
+          destroyDrawRect
+          destroyShader
+      )
+
+  finalize (liftIO destroy) $ mapView (pure . f ref) $ runOp $ x $ Op $ view [out]
+  where
+    f ref [out] = Out
+      { outRender = do
+          writeIORef ref (Just $ outTex out)
+          outRender out
+      , outTex = outTex out
+      }
+
+    fragT opts = [i|
+uniform sampler2D tex;
+
+void main() {
+  vec2 uv = gl_FragCoord.xy / #{resVec2 opts};
   gl_FragColor = texture2D(tex, uv);
 } |]
 
@@ -160,7 +211,7 @@ mapOp io op = Op $ do
   OpContext opts _ <- lift ask
 
   (f, destroy) <- unsafeNonBlockingIO $ do
-    (tex', bindFBO, destroyFBO) <- createFramebuffer opts
+    (tex, bindFBO, destroyFBO) <- createFramebuffer opts
     (attribs, bindShader, destroyShader) <- createShader Nothing (fragT opts)
 
     bindShader
@@ -170,7 +221,7 @@ mapOp io op = Op $ do
 
     pure 
       ( \[out] -> Out
-           { outTex = tex'
+           { outTex = tex
            , outRender = do
                outRender out
                img <- readImageFromTextureAlloc (outTex out)
@@ -181,11 +232,9 @@ mapOp io op = Op $ do
                    bindFBO
                    bindShader
 
-                   GL.activeTexture $= GL.TextureUnit 0
-                   GL.textureBinding GL.Texture2D $= Just tex'
-                   GL.uniform loc $= GL.TextureUnit 0
+                   GL.uniform loc $= TexUniform @0 (Just tex)
 
-                   writeImageToTexture tex' image
+                   writeImageToTexture tex image
                  Left e -> error e
            }
       , do

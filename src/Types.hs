@@ -21,6 +21,8 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Word
 
+import Foreign.Ptr
+
 import qualified Graphics.Rendering.OpenGL as GL
 
 import GHC.Generics
@@ -158,6 +160,23 @@ float = id
 
 int :: GL.GLint -> GL.GLint
 int = id
+
+--------------------------------------------------------------------------------
+
+data TexUniform (n :: Nat) = TexUniform (Maybe GL.TextureObject)
+
+instance KnownNat n => GL.Uniform (TexUniform n) where
+  uniform loc = makeStateVar get set
+    where
+      get = do
+        GL.activeTexture $= GL.TextureUnit (fromIntegral $ natVal $ Proxy @n)
+        fmap TexUniform $ GL.get $ GL.textureBinding GL.Texture2D
+      set (TexUniform tex) = do
+        GL.activeTexture $= GL.TextureUnit (fromIntegral $ natVal $ Proxy @n)
+        GL.textureBinding GL.Texture2D $= tex
+        GL.uniform loc $= GL.TextureUnit (fromIntegral $ natVal $ Proxy @n)
+
+  uniformv location count = GL.uniformv location count . (castPtr :: Ptr (TexUniform n) -> Ptr GLint)
 
 --------------------------------------------------------------------------------
 
