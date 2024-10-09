@@ -70,8 +70,9 @@ void main() {
 
 feedback :: (Op a -> Op a) -> Op a
 feedback x = Op $ do
-  ref <- unsafeNonBlockingIO $ newIORef Nothing
   OpContext opts rectBuf <- lift ask
+
+  ref <- unsafeNonBlockingIO $ newIORef Nothing
 
   (out, destroy) <- unsafeNonBlockingIO $ do
     (tex, bindFBO, destroyFBO) <- createFramebuffer opts
