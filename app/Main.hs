@@ -175,6 +175,7 @@ scene _manager mouseClick time mousePos ccMap = do
         asum [ sphere2, Run.on mouseClick ]
         bounce
 
+  -- feedback $ \r -> blend o o { factor = pure 0.05 } r $ grain o { t = (/ 3) <$> time, multiplier = pure 20 }
   grain o { t = (/ 3) <$> time, multiplier = pure 20 }
     $ sdf (trace o { maxIterations = pure 50 })
     $ softUnion o { k = cc 16 0.1 10 }
@@ -298,7 +299,7 @@ main = do
       (_, msg) <- liftIO $ RT.getMessage dev
 
       when (V.length msg >= 3) $ liftIO $ do
-        putStrLn $ "id: " <> show (msg V.! 1) <> ", value: " <> show (msg V.! 2)
+        putStrLn $ "id: " <> show (msg V.! 1) <> ", value: " <> show (msg V.! 2) <> ", ctrl: " <> show (msg V.! 0)
         atomicModifyIORef' ccMap (\m -> (M.insert (msg V.! 1) (msg V.! 2) m, ()))
 
       (mOut', next') <- if not frameByFrame || clicked rightSt' rightSt''
