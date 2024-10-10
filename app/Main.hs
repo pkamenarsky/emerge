@@ -256,9 +256,6 @@ main = do
   putStrLn "bye..."
 
   where
-    sysTimeToFloat :: Int64 -> Int64 -> Float
-    sysTimeToFloat s ns = fi s + fi ns / 1000000000
-
     frameByFrame = False
 
     dbg msg@(GL.DebugMessage _ _ _ severity _) = do
