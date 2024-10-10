@@ -154,23 +154,23 @@ scene _manager mouseClick time mousePos ccMap = do
       b2 = circle o { radius = fmap (\(_, y) -> tf (y / 1024)) mousePos }
 
   let dode1 =
-          translate o { vec = pure $ vec3 (-0.5) 0 0 }
-        $ rotate o { axis = pure $ vec3 1 0 0, radians = fmap (\(_, y) -> tf (y / 100)) mousePos }
-        $ rotate o { axis = pure $ vec3 0 1 0, radians = fmap (\(x, _) -> tf (x / (-100))) mousePos }
+          translate o { vec = vec3 (-0.5) 0 0 }
+        $ rotate o { axis = right, radians = fmap (\(_, y) -> tf (y / 100)) mousePos }
+        $ rotate o { axis = up, radians = fmap (\(x, _) -> tf (x / (-100))) mousePos }
         $ dodecahedron o { radius = (ranged 0.2 0.3 0 1 . abs . sin . (* 7)) <$> time }
 
   let dode2 =
-          translate o { vec = pure $ vec3 0.5 0 0 }
-        $ rotate o { axis = pure $ vec3 1 0 0, radians = fmap (\(_, y) -> tf (y / 200)) mousePos }
-        $ rotate o { axis = pure $ vec3 0 1 0, radians = fmap (\(x, _) -> tf (x / (-200))) mousePos }
+          translate o { vec = vec3 0.5 0 0 }
+        $ rotate o { axis = right, radians = fmap (\(_, y) -> tf (y / 200)) mousePos }
+        $ rotate o { axis = up, radians = fmap (\(x, _) -> tf (x / (-200))) mousePos }
         -- $ dodecahedron o { radius = cc 15 0 1 }
         $ dodecahedron o { radius = (ranged 0.3 0.5 0 1 . abs . sin . (* 3)) <$> time }
 
   let sphere2 =
-          translate o { vec = pure $ vec3 0.5 0 0 }
+          translate o { vec = vec3 0.5 0 0 }
         $ sphere o { radius = (ranged 0.3 0.5 0 1 . abs . sin . (* 3)) <$> time }
 
-  let bounce offset = translate o { vec = pure $ vec3 0 offset 0 } $ do
+  let bounce offset = translate o { vec = vec3 0 offset 0 } $ do
         asum [ dode2, Run.on mouseClick ]
         asum [ sphere2, Run.on mouseClick ]
         bounce (offset + 0.1)
@@ -193,10 +193,10 @@ scene _manager mouseClick time mousePos ccMap = do
     , on mouseClick
     ]
 
-  feedback $ \r -> blend o o { factor = pure 0.05 } r $ sdf (trace o { maxIterations = pure 2, clearColor = color3 <$> cc 14 0 1 <*> cc 15 0 1 <*> cc 16 0 1 })
-    $ rotate o { axis = pure $ vec3 1 0 0, radians = fmap (\(_, y) -> tf (y / 100)) mousePos }
-    $ rotate o { axis = pure $ vec3 0 1 0, radians = fmap (\(x, _) -> tf (x / (-100))) mousePos }
-    $ box o { dimensions = pure $ vec3 0.5 0.5 0.3 }
+  feedback $ \r -> blend o o { factor = pure 0.05 } r $ sdf (trace o { maxIterations = pure 2, clearColor = color3_ <$> cc 14 0 1 <*> cc 15 0 1 <*> cc 16 0 1 })
+    $ rotate o { axis = vec3 1 0 0, radians = fmap (\(_, y) -> tf (y / 100)) mousePos }
+    $ rotate o { axis = vec3 0 1 0, radians = fmap (\(x, _) -> tf (x / (-100))) mousePos }
+    $ box o { dimensions = vec3 0.5 0.5 0.3 }
 
   where
     ranged :: Float -> Float -> Float -> Float -> Float -> Float

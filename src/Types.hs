@@ -140,36 +140,80 @@ instance GLSLType Vec4 where glslType _ = "vec4"
 instance GLSLType Color3 where glslType _ = "vec3"
 instance GLSLType Color4 where glslType _ = "vec4"
 
-vec2 :: Float -> Float -> Vec2
-vec2 = GL.Vector2
+vec2_ :: Float -> Float -> Vec2
+vec2_ = GL.Vector2
 
-vec3 :: Float -> Float -> Float -> Vec3
-vec3 = GL.Vector3
+vec2 :: Float -> Float -> Signal Vec2
+vec2 x y = pure $ vec2_ x y
 
-vec4 :: Float -> Float -> Float -> Float -> Vec4
-vec4 = GL.Vector4
+vec3_ :: Float -> Float -> Float -> Vec3
+vec3_ = GL.Vector3
 
-color3 :: Float -> Float -> Float -> Color3
-color3 = GL.Color3
+vec3 :: Float -> Float -> Float -> Signal Vec3
+vec3 x y z = pure $ vec3_ x y z
 
-rgb :: Word8 -> Word8 -> Word8 -> Color3
-rgb r g b = GL.Color3 (c r) (c g) (c b)
+vec4_ :: Float -> Float -> Float -> Float -> Vec4
+vec4_ = GL.Vector4
+
+vec4 :: Float -> Float -> Float -> Float -> Signal Vec4
+vec4 x y z w = pure $ vec4_ x y z w
+
+color3_ :: Float -> Float -> Float -> Color3
+color3_ = GL.Color3
+
+color3 :: Float -> Float -> Float -> Signal Color3
+color3 r g b = pure $ color3_ r g b
+
+rgb_ :: Word8 -> Word8 -> Word8 -> Color3
+rgb_ r g b = GL.Color3 (c r) (c g) (c b)
   where
     c x = fromIntegral x / 255.0
 
-color4 :: Float -> Float -> Float -> Float -> Color4
-color4 = GL.Color4
+rgb :: Word8 -> Word8 -> Word8 -> Signal Color3
+rgb r g b = pure $ rgb_ r g b
 
-rgba :: Word8 -> Word8 -> Word8 -> Word8 -> Color4
-rgba r g b a = GL.Color4 (c r) (c g) (c b) (c a)
+color4_ :: Float -> Float -> Float -> Float -> Color4
+color4_ = GL.Color4
+
+color4 :: Float -> Float -> Float -> Float -> Signal Color4
+color4 r g b a = pure $ color4_ r g b a
+
+rgba_ :: Word8 -> Word8 -> Word8 -> Word8 -> Color4
+rgba_ r g b a = GL.Color4 (c r) (c g) (c b) (c a)
   where
     c x = fromIntegral x / 255.0
 
-float :: Float -> Float
-float = id
+rgba :: Word8 -> Word8 -> Word8 -> Word8 -> Signal Color4
+rgba r g b a = pure $ rgba_ r g b a
 
-int :: GL.GLint -> GL.GLint
-int = id
+float :: Float -> Signal Float
+float = pure
+
+int :: GL.GLint -> Signal GL.GLint
+int = pure
+
+--------------------------------------------------------------------------------
+
+origin :: Signal Vec3
+origin = vec3 0 0 0
+
+up :: Signal Vec3
+up = vec3 0 1 0
+
+down :: Signal Vec3
+down = vec3 0 (-1) 0
+
+right :: Signal Vec3
+right = vec3 1 0 0
+
+left :: Signal Vec3
+left = vec3 (-1) 0 0
+
+forward :: Signal Vec3
+forward = vec3 0 0 1
+
+backward :: Signal Vec3
+backward = vec3 0 0 (-1)
 
 --------------------------------------------------------------------------------
 

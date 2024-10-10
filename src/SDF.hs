@@ -73,7 +73,7 @@ data BoxUniforms = BoxUniforms
   } deriving Generic
 
 instance Default BoxUniforms where
-  def = BoxUniforms { dimensions = pure $ vec3 0.5 0.5 0.5 }
+  def = BoxUniforms { dimensions = vec3 0.5 0.5 0.5 }
 
 box' :: BoxUniforms -> SDF
 box' params = SDF $ \pos -> do
@@ -102,8 +102,8 @@ data PlaneUniforms = PlaneUniforms
 
 instance Default PlaneUniforms where
   def = PlaneUniforms
-    { planePoint = pure $ vec3 0 0 0
-    , normal = pure $ vec3 0.5 0.5 0.5
+    { planePoint = vec3 0 0 0
+    , normal = vec3 0.5 0.5 0.5
     }
 
 plane' :: PlaneUniforms -> SDF
@@ -191,7 +191,7 @@ data TranslateUniforms = TranslateUniforms
   } deriving Generic
 
 instance Default TranslateUniforms where
-  def = TranslateUniforms { vec = pure $ vec3 0 0 0 }
+  def = TranslateUniforms { vec = vec3 0 0 0 }
 
 translate' :: TranslateUniforms -> SDF -> SDF
 translate' params sdf = SDF $ \pos -> do
@@ -219,7 +219,7 @@ data RotateUniforms = RotateUniforms
   } deriving Generic
 
 instance Default RotateUniforms where
-  def = RotateUniforms { axis = pure $ vec3 1 0 0, radians = pure 0 }
+  def = RotateUniforms { axis = vec3 1 0 0, radians = pure 0 }
 
 rotate' :: RotateUniforms -> SDF -> SDF
 rotate' params sdf = SDF $ \pos -> do
@@ -308,7 +308,7 @@ instance Default TraceUniforms where
     , fresnelBase = pure 1
     , fresnelExp = pure 5
     , mixFactor = pure 0.5
-    , clearColor = pure $ color3 0 0 0
+    , clearColor = color3 0 0 0
     }
 
 trace

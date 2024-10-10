@@ -121,7 +121,7 @@ data FillUniforms = FillUniforms
   } deriving Generic
 
 instance Default FillUniforms where
-  def = FillUniforms { color = pure $ color4 1 1 1 1 }
+  def = FillUniforms { color = color4 1 1 1 1 }
 
 fill :: FillUniforms -> Op a
 fill = shader0 o fragT
@@ -144,8 +144,8 @@ data CircleUniforms = CircleUniforms
 instance Default CircleUniforms where
   def = CircleUniforms
     { radius = pure 0.5
-    , color = pure $ color4 1 1 1 1
-    , center = pure $ vec2 0.5 0.5
+    , color = color4 1 1 1 1
+    , center = vec2 0.5 0.5
     }
 
 circle :: CircleUniforms -> Op a
