@@ -103,7 +103,7 @@ data PlaneUniforms = PlaneUniforms
 instance Default PlaneUniforms where
   def = PlaneUniforms
     { planePoint = vec3 0 0 0
-    , normal = vec3 0.5 0.5 0.5
+    , normal = vec3 0 0 1
     }
 
 plane' :: PlaneUniforms -> SDF
@@ -191,7 +191,7 @@ data TranslateUniforms = TranslateUniforms
   } deriving Generic
 
 instance Default TranslateUniforms where
-  def = TranslateUniforms { vec = vec3 0 0 0 }
+  def = TranslateUniforms { vec = origin }
 
 translate' :: TranslateUniforms -> SDF -> SDF
 translate' params sdf = SDF $ \pos -> do
