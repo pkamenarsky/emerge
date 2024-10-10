@@ -57,7 +57,7 @@ genName = lift $ ST.state $ \(Name n) -> (Name n, Name (n + 1))
 name :: Name -> Text
 name (Name n) = "n_" <> T.pack (show n)
 
---------------------------------------------------------------------------------
+-- primitives ------------------------------------------------------------------
 
 data BoxUniforms = BoxUniforms
   { dimensions :: Signal Vec3
@@ -71,9 +71,7 @@ box params = SDF $ \pos -> do
   prefix <- name <$> genName
   out <- genName
 
-  let opts = def
-        { spFieldLabelModifier = (T.unpack prefix <>)
-        }
+  let opts = def { spFieldLabelModifier = (T.unpack prefix <>) }
       (u, setParams) = shaderParams opts params
 
   W.tell $ pure $ SDFDef
@@ -85,7 +83,87 @@ box params = SDF $ \pos -> do
 
   pure out
 
---------------------------------------------------------------------------------
+data PlaneUniforms = PlaneUniforms
+  { planePoint :: Signal Vec3
+  , normal :: Signal Vec3
+  } deriving Generic
+
+instance Default PlaneUniforms where
+  def = PlaneUniforms
+    { planePoint = pure $ vec3 0 0 0
+    , normal = pure $ vec3 0.5 0.5 0.5
+    }
+
+plane :: PlaneUniforms -> SDF
+plane params = SDF $ \pos -> do
+  prefix <- name <$> genName
+  out <- genName
+
+  let opts = def { spFieldLabelModifier = (T.unpack prefix <>) }
+      (u, setParams) = shaderParams opts params
+
+  W.tell $ pure $ SDFDef
+    { sdfIncludes = ["assets/lygia/sdf/planeSDF.glsl"]
+    , sdfUniforms = paramUniforms u
+    , sdfDecls = [("float", out, [i|planeSDF(#{name pos}, #{uniform u #planePoint}, #{uniform u #normal})|])]
+    , sdfSetParams = setParams
+    }
+
+  pure out
+
+data DodecahedronUniforms = DodecahedronUniforms
+  { radius :: Signal Float
+  } deriving Generic
+
+instance Default DodecahedronUniforms where
+  def = DodecahedronUniforms
+    { radius = pure 0.5
+    }
+
+dodecahedron :: DodecahedronUniforms -> SDF
+dodecahedron params = SDF $ \pos -> do
+  prefix <- name <$> genName
+  out <- genName
+
+  let opts = def { spFieldLabelModifier = (T.unpack prefix <>) }
+      (u, setParams) = shaderParams opts params
+
+  W.tell $ pure $ SDFDef
+    { sdfIncludes = ["assets/lygia/sdf/dodecahedronSDF.glsl"]
+    , sdfUniforms = paramUniforms u
+    , sdfDecls = [("float", out, [i|dodecahedronSDF(#{name pos}, #{uniform u #radius})|])]
+    , sdfSetParams = setParams
+    }
+
+  pure out
+
+data SphereUniforms = SphereUniforms
+  { radius :: Signal Float
+  } deriving Generic
+
+instance Default SphereUniforms where
+  def = SphereUniforms
+    { radius = pure 0.5
+    }
+
+sphere :: SphereUniforms -> SDF
+sphere params = SDF $ \pos -> do
+  prefix <- name <$> genName
+  out <- genName
+
+  let opts = def { spFieldLabelModifier = (T.unpack prefix <>) }
+      (u, setParams) = shaderParams opts params
+
+  W.tell $ pure $ SDFDef
+    { sdfIncludes = ["assets/lygia/sdf/sphereSDF.glsl"]
+    , sdfUniforms = paramUniforms u
+    , sdfDecls = [("float", out, [i|sphereSDF(#{name pos}, #{uniform u #radius})|])]
+    , sdfSetParams = setParams
+    }
+
+  pure out
+
+-- transforms ------------------------------------------------------------------
 
 data TranslateUniforms = TranslateUniforms
   { vec :: Signal Vec3
@@ -99,9 +177,7 @@ translate params sdf = SDF $ \pos -> do
   prefix <- name <$> genName
   newPos <- genName
 
-  let opts = def
-        { spFieldLabelModifier = (T.unpack prefix <>)
-        }
+  let opts = def { spFieldLabelModifier = (T.unpack prefix <>) }
       (u, setParams) = shaderParams opts params
 
   W.tell $ pure $ SDFDef
@@ -112,8 +188,6 @@ translate params sdf = SDF $ \pos -> do
     }
 
   runSDF sdf newPos
-
---------------------------------------------------------------------------------
 
 data RotateUniforms = RotateUniforms
   { axis :: Signal Vec3
@@ -128,9 +202,7 @@ rotate params sdf = SDF $ \pos -> do
   prefix <- name <$> genName
   newPos <- genName
 
-  let opts = def
-        { spFieldLabelModifier = (T.unpack prefix <>)
-        }
+  let opts = def { spFieldLabelModifier = (T.unpack prefix <>) }
       (u, setParams) = shaderParams opts params
 
   W.tell $ pure $ SDFDef
@@ -142,7 +214,7 @@ rotate params sdf = SDF $ \pos -> do
 
   runSDF sdf newPos
 
---------------------------------------------------------------------------------
+-- csg -------------------------------------------------------------------------
 
 union :: SDF -> SDF -> SDF
 union sdfA sdfB = SDF $ \pos -> do
@@ -156,6 +228,33 @@ union sdfA sdfB = SDF $ \pos -> do
     , sdfUniforms = []
     , sdfDecls = [("float", newPos, [i|min(#{name pA}, #{name pB})|])]
     , sdfSetParams = \_ -> pure (pure ())
+    }
+
+  pure newPos
+
+data SoftUnionUniforms = SoftUnionUniforms
+  { k :: Signal Float
+  } deriving Generic
+
+instance Default SoftUnionUniforms where
+  def = SoftUnionUniforms { k = pure 0.1 }
+
+softUnion :: SoftUnionUniforms -> SDF -> SDF -> SDF
+softUnion params sdfA sdfB = SDF $ \pos -> do
+  prefix <- name <$> genName
+  pA <- runSDF sdfA pos
+  pB <- runSDF sdfB pos
+
+  let opts = def { spFieldLabelModifier = (T.unpack prefix <>) }
+      (u, setParams) = shaderParams opts params
+
+  newPos <- genName
+
+  W.tell $ pure $ SDFDef
+    { sdfIncludes = ["assets/lygia/sdf/opUnion.glsl"]
+    , sdfUniforms = paramUniforms u
+    , sdfDecls = [("float", newPos, [i|opUnion(#{name pA}, #{name pB}, #{uniform u #k})|])]
+    , sdfSetParams = setParams
     }
 
   pure newPos

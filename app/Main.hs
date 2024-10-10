@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -149,6 +150,11 @@ scene :: Manager -> Event () -> Signal (Double, Double) -> Signal (Word8 -> Word
 scene _manager mouseClick mousePos ccMap = do
   let b1 = circle o { radius = fmap (\(x, _) -> tf (x / 1024)) mousePos }
       b2 = circle o { radius = fmap (\(_, y) -> tf (y / 1024)) mousePos }
+
+  sdf (trace o { maxIterations = pure 2 })
+    $ rotate o { axis = pure $ vec3 1 0 0, radians = fmap (\(_, y) -> tf (y / 100)) mousePos }
+    $ rotate o { axis = pure $ vec3 0 1 0, radians = fmap (\(x, _) -> tf (x / (-100))) mousePos }
+    $ dodecahedron o { radius = cc 14 0 1 }
 
   feedback $ \r -> blend o o { factor = pure 0.01 } r $ asum [ blend o o b1 b2, on mouseClick ]
 
