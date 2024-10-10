@@ -12,12 +12,15 @@
 
 module SDF where
 
+import Control.Applicative
 import Control.Monad.IO.Class
 import           Control.Monad.Trans.Class (lift)
 import qualified Control.Monad.Trans.State as ST
 import           Control.Monad.Trans.Reader
 import qualified Control.Monad.Trans.Writer.CPS as W
 
+import Data.Foldable (for_)
+import Data.IORef
 import Data.String.Interpolate (i)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -51,6 +54,12 @@ data SDFDef = SDFDef
 
 newtype SDF = SDF { runSDF :: Pos -> W.WriterT [SDFDef] (ST.State Name) Pos }
 
+instance Semigroup SDF where
+  SDF s <> SDF t = SDF $ \p -> s p >>= t
+
+instance Monoid SDF where
+  mempty = SDF pure
+
 genName :: W.WriterT [SDFDef] (ST.State Name) Name
 genName = lift $ ST.state $ \(Name n) -> (Name n, Name (n + 1))
 
@@ -66,8 +75,8 @@ data BoxUniforms = BoxUniforms
 instance Default BoxUniforms where
   def = BoxUniforms { dimensions = pure $ vec3 0.5 0.5 0.5 }
 
-box :: BoxUniforms -> SDF
-box params = SDF $ \pos -> do
+box' :: BoxUniforms -> SDF
+box' params = SDF $ \pos -> do
   prefix <- name <$> genName
   out <- genName
 
@@ -83,6 +92,9 @@ box params = SDF $ \pos -> do
 
   pure out
 
+box :: BoxUniforms -> Syn SDF m a
+box = view . box'
+
 data PlaneUniforms = PlaneUniforms
   { planePoint :: Signal Vec3
   , normal :: Signal Vec3
@@ -94,8 +106,8 @@ instance Default PlaneUniforms where
     , normal = pure $ vec3 0.5 0.5 0.5
     }
 
-plane :: PlaneUniforms -> SDF
-plane params = SDF $ \pos -> do
+plane' :: PlaneUniforms -> SDF
+plane' params = SDF $ \pos -> do
   prefix <- name <$> genName
   out <- genName
 
@@ -111,6 +123,9 @@ plane params = SDF $ \pos -> do
 
   pure out
 
+plane :: PlaneUniforms -> Syn SDF m a
+plane = view . plane'
+
 data DodecahedronUniforms = DodecahedronUniforms
   { radius :: Signal Float
   } deriving Generic
@@ -120,8 +135,8 @@ instance Default DodecahedronUniforms where
     { radius = pure 0.5
     }
 
-dodecahedron :: DodecahedronUniforms -> SDF
-dodecahedron params = SDF $ \pos -> do
+dodecahedron' :: DodecahedronUniforms -> SDF
+dodecahedron' params = SDF $ \pos -> do
   prefix <- name <$> genName
   out <- genName
 
@@ -137,6 +152,9 @@ dodecahedron params = SDF $ \pos -> do
 
   pure out
 
+dodecahedron :: DodecahedronUniforms -> Syn SDF m a
+dodecahedron = view . dodecahedron'
+
 data SphereUniforms = SphereUniforms
   { radius :: Signal Float
   } deriving Generic
@@ -146,8 +164,8 @@ instance Default SphereUniforms where
     { radius = pure 0.5
     }
 
-sphere :: SphereUniforms -> SDF
-sphere params = SDF $ \pos -> do
+sphere' :: SphereUniforms -> SDF
+sphere' params = SDF $ \pos -> do
   prefix <- name <$> genName
   out <- genName
 
@@ -163,6 +181,9 @@ sphere params = SDF $ \pos -> do
 
   pure out
 
+sphere :: SphereUniforms -> Syn SDF m a
+sphere = view . sphere'
+
 -- transforms ------------------------------------------------------------------
 
 data TranslateUniforms = TranslateUniforms
@@ -172,8 +193,8 @@ data TranslateUniforms = TranslateUniforms
 instance Default TranslateUniforms where
   def = TranslateUniforms { vec = pure $ vec3 0 0 0 }
 
-translate :: TranslateUniforms -> SDF -> SDF
-translate params sdf = SDF $ \pos -> do
+translate' :: TranslateUniforms -> SDF -> SDF
+translate' params sdf = SDF $ \pos -> do
   prefix <- name <$> genName
   newPos <- genName
 
@@ -189,6 +210,9 @@ translate params sdf = SDF $ \pos -> do
 
   runSDF sdf newPos
 
+translate :: TranslateUniforms -> Syn SDF m a -> Syn SDF m a
+translate = mapView . translate'
+
 data RotateUniforms = RotateUniforms
   { axis :: Signal Vec3
   , radians :: Signal Float
@@ -197,8 +221,8 @@ data RotateUniforms = RotateUniforms
 instance Default RotateUniforms where
   def = RotateUniforms { axis = pure $ vec3 1 0 0, radians = pure 0 }
 
-rotate :: RotateUniforms -> SDF -> SDF
-rotate params sdf = SDF $ \pos -> do
+rotate' :: RotateUniforms -> SDF -> SDF
+rotate' params sdf = SDF $ \pos -> do
   prefix <- name <$> genName
   newPos <- genName
 
@@ -214,10 +238,13 @@ rotate params sdf = SDF $ \pos -> do
 
   runSDF sdf newPos
 
+rotate :: RotateUniforms -> Syn SDF m a -> Syn SDF m a
+rotate = mapView . rotate'
+
 -- csg -------------------------------------------------------------------------
 
-union :: SDF -> SDF -> SDF
-union sdfA sdfB = SDF $ \pos -> do
+union' :: SDF -> SDF -> SDF
+union' sdfA sdfB = SDF $ \pos -> do
   pA <- runSDF sdfA pos
   pB <- runSDF sdfB pos
 
@@ -232,6 +259,9 @@ union sdfA sdfB = SDF $ \pos -> do
 
   pure newPos
 
+union :: Syn SDF m a -> Syn SDF m a -> Syn SDF m a
+union s t = mapView (\[s', t'] -> union' s' t') (mapView pure s <|> mapView pure t)
+
 data SoftUnionUniforms = SoftUnionUniforms
   { k :: Signal Float
   } deriving Generic
@@ -239,8 +269,8 @@ data SoftUnionUniforms = SoftUnionUniforms
 instance Default SoftUnionUniforms where
   def = SoftUnionUniforms { k = pure 0.1 }
 
-softUnion :: SoftUnionUniforms -> SDF -> SDF -> SDF
-softUnion params sdfA sdfB = SDF $ \pos -> do
+softUnion' :: SoftUnionUniforms -> SDF -> SDF -> SDF
+softUnion' params sdfA sdfB = SDF $ \pos -> do
   prefix <- name <$> genName
   pA <- runSDF sdfA pos
   pB <- runSDF sdfB pos
@@ -258,6 +288,9 @@ softUnion params sdfA sdfB = SDF $ \pos -> do
     }
 
   pure newPos
+
+softUnion :: SoftUnionUniforms -> Syn SDF m a -> Syn SDF m a -> Syn SDF m a
+softUnion params s t = mapView (\[s', t'] -> softUnion' params s' t') (mapView pure s <|> mapView pure t)
 
 --------------------------------------------------------------------------------
 
@@ -384,8 +417,8 @@ compile eval sdf = (compileDefs, setParams)
 
 --------------------------------------------------------------------------------
 
-sdf :: (OpOptions -> SDFEval) -> SDF -> Op a
-sdf eval sdfDefs = Op $ do
+sdf' :: (OpOptions -> SDFEval) -> SDF -> Op a
+sdf' eval sdfDefs = Op $ do
   OpContext opts rectBuf <- lift ask
 
   let (fragT, init) = compile (eval opts) sdfDefs
@@ -414,3 +447,62 @@ sdf eval sdfDefs = Op $ do
       )
 
   finalize (liftIO destroy) $ view [out]
+
+sdf :: (OpOptions -> SDFEval) -> Syn SDF (ReaderT OpContext IO) a -> Op a
+sdf eval sdfDefs = Op $ do
+  OpContext opts rectBuf <- lift ask
+
+  (fbo, ref) <- unsafeNonBlockingIO $ do
+    ref <- newIORef Nothing
+    fbo <- createFramebuffer opts
+    pure (fbo, ref)
+
+  finalize (destroy fbo ref) $ mapView (pure . f opts fbo rectBuf ref) sdfDefs
+
+  where
+    destroy (_, _, destroyFBO) ref = do
+      st <- liftIO $ readIORef ref
+
+      for_ st $ \(_, (_, _, destroyShader), _, (_, destroyDrawRect)) -> liftIO $ do
+        _ <- destroyFBO
+        _ <- destroyShader
+        destroyDrawRect
+
+    f opts (tex, bindFBO, _) rectBuf ref sdfDef = Out
+      { outRender = do
+          let (fragT, init) = compile (eval opts) sdfDef
+
+          let create = do
+                shSt@(attribs, bindShader, _) <- createShader Nothing fragT
+                rectSt@(drawRect, _) <- createDrawRect rectBuf attribs
+
+                set <- init (saProgram attribs)
+
+                writeIORef ref $ Just (fragT, shSt, set, rectSt)
+
+                pure $ do
+                  bindFBO
+                  bindShader
+                  set
+                  drawRect
+
+          st <- readIORef ref
+
+          render <- case st of
+            Just (oldFragT, (_, oldBindShader, oldDestroyShader), oldSet, (oldDrawRect, oldDestroyDrawRect)) -> if oldFragT == fragT
+              then pure $ do
+                bindFBO
+                oldBindShader
+                oldSet
+                oldDrawRect
+              else do
+                oldDestroyShader
+                oldDestroyDrawRect
+
+                create
+            Nothing -> create
+              
+          render
+
+      , outTex = tex
+      }

@@ -64,12 +64,6 @@ unsafeNonBlockingIO io = lift $ liftIO io
 
 --------------------------------------------------------------------------------
 
-hoistW :: Syn v (WriterT w m) a -> WriterT w (Syn v m) a
-hoistW (Syn (Free (View v next))) = WriterT $ do
-  Syn $ Free $ View v (unSyn $ runWriterT $ hoistW $ Syn next)
-
---------------------------------------------------------------------------------
-
 data RunF v m next
   = YV v next
   | forall a. YA (m a) (a -> next)
