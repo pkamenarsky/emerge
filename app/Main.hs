@@ -213,6 +213,9 @@ scene _manager mouseClick time mousePos ccMap = do
 
 main :: IO ()
 main = do
+  dev <- RT.defaultInput
+  RT.openPort dev 1 "syn"
+
   ccMap <- newIORef mempty :: IO (IORef (M.Map Word8 Word8))
 
   manager <- newManager defaultManagerSettings
@@ -229,20 +232,11 @@ main = do
   let time = Signal $ do
         now <- Time.getSystemTime
 
-        let sd = Time.systemSeconds now - Time.systemSeconds t0
-        let nsd = fi (Time.systemNanoseconds now) - fi (Time.systemNanoseconds t0)
-        let sf = sysTimeToFloat' sd nsd
+        let s = Time.systemSeconds now - Time.systemSeconds t0
+        let ns = fi (Time.systemNanoseconds now) - fi (Time.systemNanoseconds t0) :: Int64
 
-        pure sf
+        pure $ fi s + fi ns / 1000000000
 
-  dev <- RT.defaultInput
-  RT.closePort dev
-  RT.openPort dev 1 "syn"
-
-  -- RT.setCallback dev $ \ts msg -> do
-  --   putStrLn $ "id: " <> show (msg V.! 1) <> ", value: " <> show (msg V.! 2)
-  --   atomicModifyIORef' ccMap (\m -> (M.insert (msg V.! 1) (msg V.! 2) m, ()))
-        
   bracket
     (GLFW.createWindow 1024 1024 "SYN" Nothing Nothing)
     (traverse_ GLFW.destroyWindow)
@@ -262,11 +256,8 @@ main = do
   putStrLn "bye..."
 
   where
-    sysTimeToFloat :: Time.SystemTime -> Float
-    sysTimeToFloat (Time.MkSystemTime s ns) = fi s + fi ns / 1000000000
-
-    sysTimeToFloat' :: Int64 -> Int64 -> Float
-    sysTimeToFloat' s ns = fi s + fi ns / 1000000000
+    sysTimeToFloat :: Int64 -> Int64 -> Float
+    sysTimeToFloat s ns = fi s + fi ns / 1000000000
 
     frameByFrame = False
 

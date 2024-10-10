@@ -468,6 +468,7 @@ sdf eval sdfDefs = Op $ do
         _ <- destroyShader
         destroyDrawRect
 
+    -- TODO: we're comparing shader sources here every frame, probably not the most efficient
     f opts (tex, bindFBO, _) rectBuf ref sdfDef = Out
       { outRender = do
           let (fragT, init) = compile (eval opts) sdfDef
