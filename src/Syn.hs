@@ -14,6 +14,7 @@ import Control.Applicative
 import Control.Monad.IO.Class
 import Control.Monad.Free
 import Control.Monad.Trans.Class
+import Control.Monad.Trans.Writer
 
 import Data.Machine.MealyT
 import Data.Machine.Process
@@ -60,6 +61,12 @@ finalize fin s = Syn $ liftF $ Finalize fin s id
 -- | Fireing events from here will cause a dedlock.
 unsafeNonBlockingIO :: MonadIO m => IO a -> Syn v m a
 unsafeNonBlockingIO io = lift $ liftIO io
+
+--------------------------------------------------------------------------------
+
+hoistW :: Syn v (WriterT w m) a -> WriterT w (Syn v m) a
+hoistW (Syn (Free (View v next))) = WriterT $ do
+  Syn $ Free $ View v (unSyn $ runWriterT $ hoistW $ Syn next)
 
 --------------------------------------------------------------------------------
 
