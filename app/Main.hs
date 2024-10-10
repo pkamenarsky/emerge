@@ -170,10 +170,10 @@ scene _manager mouseClick time mousePos ccMap = do
           translate o { vec = pure $ vec3 0.5 0 0 }
         $ sphere o { radius = (ranged 0.3 0.5 0 1 . abs . sin . (* 3)) <$> time }
 
-  let bounce = do
+  let bounce offset = translate o { vec = pure $ vec3 0 offset 0 } $ do
         asum [ dode2, Run.on mouseClick ]
         asum [ sphere2, Run.on mouseClick ]
-        bounce
+        bounce (offset + 0.1)
 
   -- feedback $ \r -> blend o o { factor = pure 0.05 } r $ grain o { t = (/ 3) <$> time, multiplier = pure 20 }
   grain o { t = (/ 3) <$> time, multiplier = pure 20 }
@@ -181,7 +181,7 @@ scene _manager mouseClick time mousePos ccMap = do
     $ softUnion o { k = cc 16 0.1 10 }
         -- (softUnion o (plane o { normal = pure $ vec3 0 0 (1), planePoint = vec3 <$> pure 0 <*> pure 0 <*> cc 17 (-1) 1 }) dode1)
         dode1
-        bounce
+        (bounce 0)
 
   feedback $ \r -> blend o o { factor = pure 0.01 } r $ asum [ blend o o b1 b2, on mouseClick ]
 
