@@ -166,7 +166,16 @@ scene _manager mouseClick time mousePos ccMap = do
         -- $ dodecahedron o { radius = cc 15 0 1 }
         $ dodecahedron o { radius = (ranged 0.3 0.5 0 1 . abs . sin . (* 3)) <$> time }
 
-  grain o { t = (/ 3) <$> time, multiplier = pure 20 } $ sdf (trace o { maxIterations = pure 50 }) $ softUnion o { k = cc 16 0 10 } dode1 dode2
+  let sphere2 =
+          translate o { vec = pure $ vec3 0.5 0 0 }
+        $ sphere o { radius = (ranged 0.3 0.5 0 1 . abs . sin . (* 3)) <$> time }
+
+  grain o { t = (/ 3) <$> time, multiplier = pure 20 }
+    $ sdf (trace o { maxIterations = pure 50 })
+    $ softUnion o { k = cc 16 0.1 10 }
+        -- (softUnion o (plane o { normal = pure $ vec3 0 0 (1), planePoint = vec3 <$> pure 0 <*> pure 0 <*> cc 17 (-1) 1 }) dode1)
+        dode1
+        dode2
 
   feedback $ \r -> blend o o { factor = pure 0.01 } r $ asum [ blend o o b1 b2, on mouseClick ]
 
