@@ -66,7 +66,7 @@ void main() {
   gl_FragColor = vec4(t.rgb * t.a, 1.);
 } |]
 
--- Ops (feedback) --------------------------------------------------------------
+-- feedback --------------------------------------------------------------------
 
 feedback :: (Op a -> Op a) -> Op a
 feedback x = Op $ do
@@ -114,7 +114,7 @@ void main() {
   gl_FragColor = texture2D(tex, uv);
 } |]
 
--- Ops (fill) ------------------------------------------------------------------
+-- fill ------------------------------------------------------------------------
 
 data FillUniforms = FillUniforms
   { color :: Signal Color4
@@ -133,7 +133,7 @@ void main() {
   gl_FragColor = #{uniform u #color};
 } |]
 
--- Ops (circle) ----------------------------------------------------------------
+-- circle ----------------------------------------------------------------------
 
 data CircleUniforms = CircleUniforms
   { radius :: Signal Float
@@ -165,7 +165,7 @@ void main() {
   gl_FragColor = #{uniform u #color} * (1. - alpha);
 } |]
 
--- Ops (blend) -----------------------------------------------------------------
+-- blend -----------------------------------------------------------------------
 
 data BlendMode = Add | Mul | Over
 
@@ -209,6 +209,32 @@ void main() {
 
     t :: Text -> Text
     t = id
+
+-- grain -----------------------------------------------------------------------
+
+data GrainUniforms = GrainUniforms
+  { multiplier :: Signal Float
+  , t :: Signal Float
+  } deriving Generic
+
+instance Default GrainUniforms where
+  def = GrainUniforms
+    { multiplier = pure 2.5
+    , t = pure 0
+    }
+
+grain :: GrainUniforms -> Op a -> Op a
+grain = shader1 o fragT
+  where
+    fragT opOpts u tex0 = [i|
+\#include "assets/lygia/distort/grain.glsl"
+
+#{formatParamUniforms u}
+
+void main() {
+  vec2 uv = gl_FragCoord.xy / #{resVec2 opOpts};
+  gl_FragColor = vec4(grain(#{tex0}, uv, #{resVec2 opOpts}, #{uniform u #t}, #{uniform u #multiplier}), 1.);
+} |]
 
 --------------------------------------------------------------------------------
 

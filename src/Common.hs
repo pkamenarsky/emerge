@@ -263,8 +263,6 @@ createShader vertT fragT = do
   GL.shaderSourceBS fragShader $= T.encodeUtf8 fragT'
   GL.compileShader fragShader
 
-  T.putStrLn fragT'
-
   program <- GL.createProgram
   GL.attachShader program vertShader
   GL.attachShader program fragShader

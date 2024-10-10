@@ -11,7 +11,7 @@ module Main (main) where
 
 import Control.Applicative
 import Control.Exception
-import Control.Monad (void)
+import Control.Monad (when, void)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Reader
 
@@ -22,6 +22,7 @@ import Data.IORef
 import Data.Maybe (fromMaybe)
 import Data.StateVar
 import Data.String.Interpolate (i)
+import qualified Data.Time.Clock.System as Time
 import Data.Void
 import qualified Data.Map as M
 import qualified Data.Vector.Storable as V
@@ -43,6 +44,7 @@ import Syn.Run (Event (Event))
 import qualified Syn.Run as Run
 
 import GHC.Generics
+import GHC.Int
 import GHC.Word
 
 import qualified Sound.RtMidi as RT
@@ -146,15 +148,25 @@ void main() {
 on :: Event a -> Op a
 on = Op . Run.on
 
-scene :: Manager -> Event () -> Signal (Double, Double) -> Signal (Word8 -> Word8) -> Op a
-scene _manager mouseClick mousePos ccMap = do
+scene :: Manager -> Event () -> Signal Float -> Signal (Double, Double) -> Signal (Word8 -> Word8) -> Op a
+scene _manager mouseClick time mousePos ccMap = do
   let b1 = circle o { radius = fmap (\(x, _) -> tf (x / 1024)) mousePos }
       b2 = circle o { radius = fmap (\(_, y) -> tf (y / 1024)) mousePos }
 
-  sdf (trace o { maxIterations = pure 2 })
-    $ rotate o { axis = pure $ vec3 1 0 0, radians = fmap (\(_, y) -> tf (y / 100)) mousePos }
-    $ rotate o { axis = pure $ vec3 0 1 0, radians = fmap (\(x, _) -> tf (x / (-100))) mousePos }
-    $ dodecahedron o { radius = cc 14 0 1 }
+  let dode1 =
+          translate o { vec = pure $ vec3 (-0.5) 0 0 }
+        $ rotate o { axis = pure $ vec3 1 0 0, radians = fmap (\(_, y) -> tf (y / 100)) mousePos }
+        $ rotate o { axis = pure $ vec3 0 1 0, radians = fmap (\(x, _) -> tf (x / (-100))) mousePos }
+        $ dodecahedron o { radius = (ranged 0.2 0.3 0 1 . abs . sin . (* 7)) <$> time }
+
+  let dode2 =
+          translate o { vec = pure $ vec3 0.5 0 0 }
+        $ rotate o { axis = pure $ vec3 1 0 0, radians = fmap (\(_, y) -> tf (y / 200)) mousePos }
+        $ rotate o { axis = pure $ vec3 0 1 0, radians = fmap (\(x, _) -> tf (x / (-200))) mousePos }
+        -- $ dodecahedron o { radius = cc 15 0 1 }
+        $ dodecahedron o { radius = (ranged 0.3 0.5 0 1 . abs . sin . (* 3)) <$> time }
+
+  grain o { t = (/ 3) <$> time, multiplier = pure 20 } $ sdf (trace o { maxIterations = pure 50 }) $ softUnion o { k = cc 16 0 10 } dode1 dode2
 
   feedback $ \r -> blend o o { factor = pure 0.01 } r $ asum [ blend o o b1 b2, on mouseClick ]
 
@@ -186,16 +198,9 @@ scene _manager mouseClick mousePos ccMap = do
 
 main :: IO ()
 main = do
-  dev <- RT.defaultInput
-  RT.openPort dev 1 "syn"
-
   ccMap <- newIORef mempty :: IO (IORef (M.Map Word8 Word8))
 
   manager <- newManager defaultManagerSettings
-
-  RT.setCallback dev $ \ts msg -> do
-    putStrLn $ "id: " <> show (msg V.! 1) <> ", value: " <> show (msg V.! 2)
-    atomicModifyIORef' ccMap (\m -> (M.insert (msg V.! 1) (msg V.! 2) m, ()))
 
   _ <- GLFW.init
 
@@ -204,6 +209,25 @@ main = do
   GLFW.windowHint $ GLFW.WindowHint'ContextVersionMinor 6
   GLFW.windowHint $ GLFW.WindowHint'OpenGLProfile GLFW.OpenGLProfile'Core
 
+  t0 <- Time.getSystemTime
+
+  let time = Signal $ do
+        now <- Time.getSystemTime
+
+        let sd = Time.systemSeconds now - Time.systemSeconds t0
+        let nsd = fi (Time.systemNanoseconds now) - fi (Time.systemNanoseconds t0)
+        let sf = sysTimeToFloat' sd nsd
+
+        pure sf
+
+  dev <- RT.defaultInput
+  RT.closePort dev
+  RT.openPort dev 1 "syn"
+
+  -- RT.setCallback dev $ \ts msg -> do
+  --   putStrLn $ "id: " <> show (msg V.! 1) <> ", value: " <> show (msg V.! 2)
+  --   atomicModifyIORef' ccMap (\m -> (M.insert (msg V.! 1) (msg V.! 2) m, ()))
+        
   bracket
     (GLFW.createWindow 1024 1024 "SYN" Nothing Nothing)
     (traverse_ GLFW.destroyWindow)
@@ -218,11 +242,17 @@ main = do
          rectBuf <- createRectBuffer
          (blitToScreen, _) <- blit rectBuf (GL.Size 1024 1024)
 
-         flip runReaderT (OpContext o rectBuf) $ for_ mWin (go False False mouseClick blitToScreen Nothing $ reinterpret $ runOp $ scene manager mouseClick mousePos (Signal $ fmap (\ccMap' ccId -> fromMaybe 0 $ M.lookup ccId ccMap') (readIORef ccMap)))
+         flip runReaderT (OpContext o rectBuf) $ for_ mWin (go dev ccMap False False mouseClick blitToScreen Nothing $ reinterpret $ runOp $ scene manager mouseClick time mousePos (Signal $ fmap (\ccMap' ccId -> fromMaybe 0 $ M.lookup ccId ccMap') (readIORef ccMap)))
 
   putStrLn "bye..."
 
   where
+    sysTimeToFloat :: Time.SystemTime -> Float
+    sysTimeToFloat (Time.MkSystemTime s ns) = fi s + fi ns / 1000000000
+
+    sysTimeToFloat' :: Int64 -> Int64 -> Float
+    sysTimeToFloat' s ns = fi s + fi ns / 1000000000
+
     frameByFrame = False
 
     dbg msg@(GL.DebugMessage _ _ _ severity _) = do
@@ -238,8 +268,8 @@ main = do
     maybeHead (a:_) = Just a
     maybeHead _ = Nothing
 
-    go :: Bool -> Bool -> Event () -> (GL.TextureObject -> IO ()) -> Maybe Out -> Run [Out] (ReaderT OpContext IO) Void -> GLFW.Window -> ReaderT OpContext IO ()
-    go mouseButtonSt rightSt' e@(Event mouseClick) blitToScreen mOut run win = do
+    go :: RT.InputDevice -> IORef (M.Map Word8 Word8) -> Bool -> Bool -> Event () -> (GL.TextureObject -> IO ()) -> Maybe Out -> Run [Out] (ReaderT OpContext IO) Void -> GLFW.Window -> ReaderT OpContext IO ()
+    go dev ccMap mouseButtonSt rightSt' e@(Event mouseClick) blitToScreen mOut run win = do
       st <- liftIO $ GLFW.getMouseButton win GLFW.MouseButton'1
       rightSt <- liftIO $ GLFW.getMouseButton win GLFW.MouseButton'2
 
@@ -250,6 +280,12 @@ main = do
       rightSt'' <- case rightSt of
         GLFW.MouseButtonState'Pressed -> pure True
         _ -> pure False
+
+      (_, msg) <- liftIO $ RT.getMessage dev
+
+      when (V.length msg >= 3) $ liftIO $ do
+        putStrLn $ "id: " <> show (msg V.! 1) <> ", value: " <> show (msg V.! 2)
+        atomicModifyIORef' ccMap (\m -> (M.insert (msg V.! 1) (msg V.! 2) m, ()))
 
       (mOut', next') <- if not frameByFrame || clicked rightSt' rightSt''
         then do
@@ -283,4 +319,4 @@ main = do
         then pure ()
         else do
           liftIO $ GLFW.pollEvents
-          go mouseButtonSt' rightSt'' e blitToScreen mOut' next' win
+          go dev ccMap mouseButtonSt' rightSt'' e blitToScreen mOut' next' win

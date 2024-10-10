@@ -35,10 +35,10 @@ dependencies:
 - primitive
 - RtMidi
 - StateVar
+- time
 - stm
 - string-interpolate
 - text
-- tidal
 - transformers
 - vector
 
