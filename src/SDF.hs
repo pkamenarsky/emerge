@@ -419,7 +419,7 @@ compile eval sdf = (compileDefs, setParams)
 
 sdf' :: (OpOptions -> SDFEval) -> SDF -> Op a
 sdf' eval sdfDefs = Op $ do
-  OpContext opts rectBuf <- lift ask
+  OpContext opts rectBuf _ _ <- lift ask
 
   let (fragT, init) = compile (eval opts) sdfDefs
 
@@ -450,7 +450,7 @@ sdf' eval sdfDefs = Op $ do
 
 sdf :: (OpOptions -> SDFEval) -> Syn SDF (ReaderT OpContext IO) a -> Op a
 sdf eval sdfDefs = Op $ do
-  OpContext opts rectBuf <- lift ask
+  OpContext opts rectBuf _ _ <- lift ask
 
   (fbo, ref) <- unsafeNonBlockingIO $ do
     ref <- newIORef Nothing

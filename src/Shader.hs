@@ -34,7 +34,7 @@ shader0
   -> params
   -> Op a
 shader0 deriveOpts fragT params = Op $ do
-  OpContext opts rectBuf <- lift ask
+  OpContext opts rectBuf _ _ <- lift ask
 
   (out, destroy) <- unsafeNonBlockingIO $ do
     (tex, bindFBO, destroyFBO) <- createFramebuffer opts
@@ -71,7 +71,7 @@ shader1
   -> Op a
   -> Op a
 shader1 deriveOpts fragT params op0 = Op $ do
-  OpContext opts rectBuf <- lift ask
+  OpContext opts rectBuf _ _ <- lift ask
 
   let tex0u = "tex0"
       tex0 = spFieldLabelModifier deriveOpts tex0u
@@ -127,7 +127,7 @@ shader2
   -> Op a
   -> Op a
 shader2 deriveOpts fragT params op0 op1 = Op $ do
-  OpContext opts rectBuf <- lift ask
+  OpContext opts rectBuf _ _ <- lift ask
 
   let tex0u = "tex0"
       tex0 = spFieldLabelModifier deriveOpts tex0u

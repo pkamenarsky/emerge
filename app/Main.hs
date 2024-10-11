@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE NegativeLiterals #-}
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -12,8 +13,9 @@ module Main (main) where
 
 import Control.Applicative
 import Control.Exception
-import Control.Monad (when, void)
+import Control.Monad (forever, when, void)
 import Control.Monad.IO.Class
+import Control.Monad.STM (atomically)
 import Control.Monad.Trans.Reader
 
 import qualified Data.ByteString as B
@@ -40,7 +42,7 @@ import Ops
 import Types
 import SDF
 
-import Syn
+import Syn hiding (forever)
 import Syn.Run (Event (Event))
 import qualified Syn.Run as Run
 
@@ -212,6 +214,85 @@ scene _manager mouseClick time mousePos ccMap = do
     ccValue :: Num a => Word8 -> Signal a
     ccValue ccId = fmap fromIntegral (ccMap <*> pure ccId)
 
+data Input
+  = InputMouse GLFW.MouseButton GLFW.MouseButtonState GLFW.ModifierKeys
+  | InputKey GLFW.Key Int GLFW.KeyState GLFW.ModifierKeys
+
+mouseDown :: GLFW.MouseButton -> EventFilter GLFW.ModifierKeys
+mouseDown button = EFMouse button GLFW.MouseButtonState'Pressed
+
+mouseUp :: GLFW.MouseButton -> EventFilter GLFW.ModifierKeys
+mouseUp button = EFMouse button GLFW.MouseButtonState'Released
+
+keyDown :: GLFW.Key -> EventFilter GLFW.ModifierKeys
+keyDown key = EFKey key GLFW.KeyState'Pressed
+
+keyUp :: GLFW.Key -> EventFilter GLFW.ModifierKeys
+keyUp key = EFKey key GLFW.KeyState'Released
+
+loop :: GLFW.Window -> (GL.TextureObject -> IO ()) -> (OpSignalContext -> OpEventContext -> Syn [Out] IO Void) -> IO ()
+loop win blit syn = do
+  evtChan <- newIORef []
+
+  GLFW.setCursorInputMode win GLFW.CursorInputMode'Disabled
+  GLFW.setMouseButtonCallback win $ Just $ \_ button state modKeys -> modifyIORef' evtChan (InputMouse button state modKeys:)
+  GLFW.setKeyCallback win $ Just $ \_ key scanCode state modKeys -> modifyIORef' evtChan (InputKey key scanCode state modKeys:)
+
+  evtRef <- newIORef Nothing
+
+  t0 <- Time.getSystemTime
+
+  let sigCtx = OpSignalContext
+        { ctxTime = Signal $ do
+            now <- Time.getSystemTime
+
+            let s = Time.systemSeconds now - Time.systemSeconds t0
+            let ns = fi (Time.systemNanoseconds now) - fi (Time.systemNanoseconds t0) :: Int64
+
+            pure $ fi s + fi ns / 1000000000
+        }
+
+  let evtCtx = OpEventContext
+        { ctxOn = \evtFilter -> do
+            mEvt <- unsafeNonBlockingIO $ readIORef evtRef
+
+            case (mEvt, evtFilter) of
+              (Just (InputMouse button state modKeys), EFMouse button' state')
+                | button == button' && state == state' -> blocked $ pure modKeys
+
+              (Just (InputKey key _ state modKeys), EFKey key' state')
+                | key == key' && state == state' -> blocked $ pure modKeys
+
+              -- no matching events
+              _ -> blocked $ ctxOn evtCtx evtFilter
+        }
+
+  let go mOut run = do
+        atomicModifyIORef evtChan nextEvent >>= writeIORef evtRef
+        (next, rOut) <- unblock run
+
+        -- [0]
+        writeIORef evtRef Nothing
+        (next', rOut') <- unblock next
+
+        let mOut' = asum [rOut' >>= maybeHead, rOut >>= maybeHead, mOut]
+
+        for_ mOut' $ \out -> do
+          outRender out
+          blit (outTex out)
+
+        go mOut' next'
+
+  go Nothing $ reinterpret (syn sigCtx evtCtx)
+
+  where
+    nextEvent [] = ([], Nothing)
+    nextEvent (evt:evts) = (evts, Just evt)
+
+    maybeHead :: [a] -> Maybe a
+    maybeHead (a:_) = Just a
+    maybeHead _ = Nothing
+
 main :: IO ()
 main = do
   dev <- RT.defaultInput
@@ -247,12 +328,14 @@ main = do
          mouseClick <- Run.newEvent
 
          GLFW.makeContextCurrent mWin
+         for_ mWin $ \win -> GLFW.setCursorInputMode win GLFW.CursorInputMode'Disabled
+
          GL.debugMessageCallback $= Just dbg
 
          rectBuf <- createRectBuffer
          (blitToScreen, _) <- blit rectBuf (GL.Size 1024 1024)
 
-         flip runReaderT (OpContext o rectBuf) $ for_ mWin (go dev ccMap False False mouseClick blitToScreen Nothing $ reinterpret $ runOp $ scene manager mouseClick time mousePos (Signal $ fmap (\ccMap' ccId -> fromMaybe 0 $ M.lookup ccId ccMap') (readIORef ccMap)))
+         flip runReaderT (OpContext o rectBuf undefined undefined) $ for_ mWin (go dev ccMap False False mouseClick blitToScreen Nothing $ reinterpret $ runOp $ scene manager mouseClick time mousePos (Signal $ fmap (\ccMap' ccId -> fromMaybe 0 $ M.lookup ccId ccMap') (readIORef ccMap)))
 
   putStrLn "bye..."
 

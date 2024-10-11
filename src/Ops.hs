@@ -70,7 +70,7 @@ void main() {
 
 feedback :: (Op a -> Op a) -> Op a
 feedback x = Op $ do
-  OpContext opts rectBuf <- lift ask
+  OpContext opts rectBuf _ _ <- lift ask
 
   ref <- unsafeNonBlockingIO $ newIORef Nothing
 
@@ -240,7 +240,7 @@ void main() {
 
 mapOp :: (BL.ByteString -> IO B.ByteString) -> Op a -> Op a
 mapOp io op = Op $ do
-  OpContext opts _ <- lift ask
+  OpContext opts _ _ _ <- lift ask
 
   (f, destroy) <- unsafeNonBlockingIO $ do
     (tex, bindFBO, destroyFBO) <- createFramebuffer opts

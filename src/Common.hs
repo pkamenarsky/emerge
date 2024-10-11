@@ -1,8 +1,10 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE QuasiQuotes #-}
 
 module Common where
@@ -36,6 +38,7 @@ import Foreign.Ptr
 import Foreign.Marshal.Array
 import Foreign.Storable
 
+import qualified Graphics.UI.GLFW as GLFW
 import qualified Graphics.Rendering.OpenGL as GL
 
 import Syn
@@ -90,9 +93,23 @@ data Out = Out
   , outRender :: IO ()
   }
 
+data EventFilter a where
+  EFMouse :: GLFW.MouseButton -> GLFW.MouseButtonState -> EventFilter GLFW.ModifierKeys
+  EFKey :: GLFW.Key -> GLFW.KeyState -> EventFilter GLFW.ModifierKeys
+
+data OpEventContext = OpEventContext
+  { ctxOn :: forall a v m. MonadIO m => EventFilter a -> Syn v m a
+  }
+
+data OpSignalContext = OpSignalContext
+  { ctxTime :: Signal Float
+  }
+
 data OpContext = OpContext
   { ctxOptions :: OpOptions
   , ctxRectBuf :: GL.BufferObject
+  , ctxEventCtx :: OpEventContext
+  , ctxSignalCtx :: OpSignalContext
   }
 
 newtype Op a = Op { runOp :: Syn [Out] (ReaderT OpContext IO) a }

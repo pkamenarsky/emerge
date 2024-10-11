@@ -62,6 +62,9 @@ finalize fin s = Syn $ liftF $ Finalize fin s id
 unsafeNonBlockingIO :: MonadIO m => IO a -> Syn v m a
 unsafeNonBlockingIO io = lift $ liftIO io
 
+blocked :: Syn v m a -> Syn v m a
+blocked syn = Syn $ Free $ Blocked $ unSyn syn
+
 --------------------------------------------------------------------------------
 
 data RunF v m next
