@@ -12,6 +12,7 @@ module Common where
 import Control.Applicative
 import Control.Monad
 import Control.Monad.IO.Class
+import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader
 import qualified Control.Monad.Trans.State as ST
 
@@ -41,6 +42,7 @@ import Foreign.Storable
 import qualified Graphics.UI.GLFW as GLFW
 import qualified Graphics.Rendering.OpenGL as GL
 
+import Event
 import Syn
 
 import GHC.Int
@@ -93,27 +95,20 @@ data Out = Out
   , outRender :: IO ()
   }
 
-data EventFilter a where
-  EFMouse :: GLFW.MouseButton -> GLFW.MouseButtonState -> EventFilter GLFW.ModifierKeys
-  EFKey :: GLFW.Key -> GLFW.KeyState -> EventFilter GLFW.ModifierKeys
-
-data OpEventContext = OpEventContext
-  { ctxOn :: forall a v m. MonadIO m => EventFilter a -> Syn v m a
-  }
-
-data OpSignalContext = OpSignalContext
-  { ctxTime :: Signal Float
-  }
-
 data OpContext = OpContext
   { ctxOptions :: OpOptions
   , ctxRectBuf :: GL.BufferObject
-  , ctxEventCtx :: OpEventContext
-  , ctxSignalCtx :: OpSignalContext
+  , ctxEventCtx :: EventContext
+  , ctxSignalCtx :: SignalContext
   }
 
 newtype Op a = Op { runOp :: Syn [Out] (ReaderT OpContext IO) a }
   deriving (Functor, Applicative, Monad, Alternative, Semigroup)
+
+on :: EventFilter a -> Op a
+on e = Op $ do
+  ctx <- lift ask
+  ctxOn (ctxEventCtx ctx) e
 
 --------------------------------------------------------------------------------
 
