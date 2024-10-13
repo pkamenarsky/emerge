@@ -188,9 +188,8 @@ scene = signals $ \SignalContext {..} -> do
   grain o { t = (/ 3) <$> time, multiplier = pure 20 }
     $ sdf tr
     $ softUnion o { k = cc 16 0.1 10 }
-        -- (softUnion o (plane o { normal = pure $ vec3 0 0 (1), planePoint = vec3 <$> pure 0 <*> pure 0 <*> cc 17 (-1) 1 }) dode1)
         dode1
-        (asum [bounce 0, bounce 0.1, bounce 0.2, on_ middleDown])
+        $ asum [bounce 0, bounce 0.1, bounce 0.2, on_ middleDown]
 
   feedback $ \r -> blend o o { factor = pure 0.01 } r $ asum [ blend o o b1 b2, on leftDown ]
 
