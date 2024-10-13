@@ -45,6 +45,26 @@ data SDFEval = SDFEval
   , sdfeSetParams :: GL.Program -> IO (IO ())
   }
 
+-- TODO: those instances are here only to enable event handling in `asum` expressions etc
+instance Semigroup SDFEval where
+  a <> b = SDFEval
+    { sdfeIncludes = sdfeIncludes a <> sdfeIncludes b
+    , sdfeUniforms = sdfeUniforms a <> sdfeUniforms b
+    , sdfeBody = sdfeBody a <> sdfeBody b
+    , sdfeSetParams = \p -> do
+        sa <- sdfeSetParams a p
+        sb <- sdfeSetParams b p
+        pure $ sa >> sb
+    }
+
+instance Monoid SDFEval where
+  mempty = SDFEval
+    { sdfeIncludes = []
+    , sdfeUniforms = []
+    , sdfeBody = ""
+    , sdfeSetParams = \_ -> pure $ pure ()
+    }
+
 data SDFDef = SDFDef
   { sdfIncludes  :: [Text]
   , sdfUniforms  :: [(Text, Text)]
@@ -263,7 +283,7 @@ union' sdfA sdfB = SDF $ \pos -> do
   pure newPos
 
 union :: Syn SDF m a -> Syn SDF m a -> Syn SDF m a
-union s t = mapView (\[s', t'] -> union' s' t') (mapView pure s <|> mapView pure t)
+union s t = apViewOr (mapView union' s) t
 
 data SoftUnionUniforms = SoftUnionUniforms
   { k :: Signal Float
@@ -293,7 +313,7 @@ softUnion' params sdfA sdfB = SDF $ \pos -> do
   pure newPos
 
 softUnion :: SoftUnionUniforms -> Syn SDF m a -> Syn SDF m a -> Syn SDF m a
-softUnion params s t = mapView (\[s', t'] -> softUnion' params s' t') (mapView pure s <|> mapView pure t)
+softUnion params s t = apViewOr (mapView (softUnion' params) s) t
 
 --------------------------------------------------------------------------------
 
@@ -315,13 +335,16 @@ instance Default TraceUniforms where
     }
 
 trace
-  :: TraceUniforms
+  :: Text -- TODO: hack :(((
+  -> TraceUniforms
   -> OpOptions
   -> SDFEval
-trace params opts = SDFEval
+trace tag params opts = SDFEval
   { sdfeIncludes = []
   , sdfeUniforms = paramUniforms u
   , sdfeBody = [i|
+float #{tag} = 666.0;
+
 vec3 getNormal(vec3 pos) {
   const float eps = 0.0001;
   const vec2 h = vec2(1., -1.);
@@ -452,7 +475,7 @@ sdf' eval sdfDefs = Op $ do
 
   finalize (liftIO destroy) $ view [out]
 
-sdf :: (OpOptions -> SDFEval) -> Syn SDF (ReaderT OpContext IO) a -> Op a
+sdf :: Syn (OpOptions -> SDFEval) (ReaderT OpContext IO) a -> Syn SDF (ReaderT OpContext IO) a -> Op a
 sdf eval sdfDefs = Op $ do
   OpContext opts rectBuf _ _ <- lift ask
 
@@ -461,7 +484,7 @@ sdf eval sdfDefs = Op $ do
     fbo <- createFramebuffer opts
     pure (fbo, ref)
 
-  finalize (destroy fbo ref) $ mapView (pure . f opts fbo rectBuf ref) sdfDefs
+  finalize (destroy fbo ref) $ apViewOr (mapView (f opts fbo rectBuf ref) eval) sdfDefs
 
   where
     destroy (_, _, destroyFBO) ref = do
@@ -473,9 +496,9 @@ sdf eval sdfDefs = Op $ do
         destroyDrawRect
 
     -- TODO: we're comparing shader sources here every frame, probably not the most efficient
-    f opts (tex, bindFBO, _) rectBuf ref sdfDef = Out
+    f opts (tex, bindFBO, _) rectBuf ref evalDef sdfDef = pure $ Out
       { outRender = do
-          let (fragT, init) = compile (eval opts) sdfDef
+          let (fragT, init) = compile (evalDef opts) sdfDef
 
           let create = do
                 shSt@(attribs, bindShader, _) <- createShader Nothing fragT
@@ -501,6 +524,7 @@ sdf eval sdfDefs = Op $ do
                 oldSet
                 oldDrawRect
               else do
+                print "new shit"
                 oldDestroyShader
                 oldDestroyDrawRect
 
