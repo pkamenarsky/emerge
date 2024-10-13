@@ -296,8 +296,8 @@ createShader vertT fragT = do
   ls <- GL.linkStatus program
 
   when (not ls) $ do
-    ilog <- GL.programInfoLog program
-    error $ "createShader: " <> ilog
+    r <- GL.programInfoLog program
+    error $ "createShader: " <> r
 
   a_pos <- get $ GL.attribLocation program "a_pos"
   a_uv <- if uv then fmap Just $ get $ GL.attribLocation program "a_uv" else pure Nothing

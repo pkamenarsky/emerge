@@ -152,8 +152,7 @@ void main() {
 
 scene :: Op a
 scene = signals $ \SignalContext {..} -> do
-  let cc :: Word8 -> Float -> Float -> Signal Float
-      cc ccId i a = fmap (toRange i a) (ccRaw ccId)
+  let cc ccId s e = fmap (toRange s e) (ccRaw ccId)
 
   let b1 = circle o { radius = fmap (\(x, _) -> tf (x / 1024)) mousePos }
       b2 = circle o { radius = fmap (\(_, y) -> tf (y / 1024)) mousePos }
@@ -215,6 +214,16 @@ run op = do
   GLFW.windowHint $ GLFW.WindowHint'ContextVersionMinor 6
   GLFW.windowHint $ GLFW.WindowHint'OpenGLProfile GLFW.OpenGLProfile'Core
 
+  mWin <- GLFW.createWindow 1024 1024 "SYN" Nothing Nothing
+  GLFW.makeContextCurrent mWin
+  GL.debugMessageCallback $= Just dbg
+
+  rectBuf <- createRectBuffer
+  (blitToScreen, _) <- blit rectBuf (GL.Size 1024 1024)
+
+  (evtRef, evtCtx) <- eventContext
+  sigCtx <- for_ mWin signalContext
+
   bracket
     (GLFW.createWindow 1024 1024 "SYN" Nothing Nothing)
     (traverse_ GLFW.destroyWindow)
@@ -222,21 +231,26 @@ run op = do
          GLFW.makeContextCurrent mWin
          GL.debugMessageCallback $= Just dbg
 
-         rectBuf <- createRectBuffer
-         (blitToScreen, _) <- blit rectBuf (GL.Size 1024 1024)
-
          for_ mWin $ \win -> do
+           rectBuf <- createRectBuffer
+           (blitToScreen, _) <- blit rectBuf (GL.Size 1024 1024)
+
            (evtRef, evtCtx) <- eventContext
            sigCtx <- signalContext win
 
-           flip runReaderT (OpContext o rectBuf evtCtx sigCtx) $ loop win evtRef (\out -> blitToScreen (outTex out)) (unOp op)
+           flip runReaderT (OpContext o rectBuf evtCtx sigCtx) $ loop win evtRef (render blitToScreen) (unOp op)
 
   putStrLn "bye..."
 
   where
+    render blitToScreen out = do
+      outRender out
+      blitToScreen (outTex out)
+
     dbg msg@(GL.DebugMessage _ _ _ severity _) = do
       case severity of
         GL.DebugSeverityNotification -> pure ()
         _ -> traceIO $ show msg
 
+main :: IO ()
 main = run scene

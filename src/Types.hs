@@ -31,6 +31,8 @@ import GHC.OverloadedLabels
 import GHC.Records
 import GHC.TypeLits
 
+import Debug.Trace
+
 --------------------------------------------------------------------------------
 
 class Default a where
@@ -39,7 +41,7 @@ class Default a where
 o :: Default a => a
 o = def
 
---------------------------------------------------------------------------------
+  --------------------------------------------------------------------------------
 
 data ShaderParamDeriveOpts = ShaderParamDeriveOpts
   { spFieldLabelModifier :: String -> String
@@ -80,7 +82,7 @@ instance (KnownSymbol name, GLSLType a, GL.Uniform a) => GShaderParams (M1 S ('M
          loc <- GL.uniformLocation program n
 
          when (loc < GL.UniformLocation 0) $
-           putStrLn $ "WARNING: gShaderParams: uniform " <> n <> " not found"
+           traceIO $ "WARNING: gShaderParams: uniform " <> n <> " not found"
 
          pure $ signalValue a >>= maybe (pure ()) (GL.uniform loc $=)
     )

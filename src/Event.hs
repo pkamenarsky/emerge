@@ -83,14 +83,14 @@ signalContext win = do
   -- MIDI
   ccMap <- newIORef M.empty
 
-  dev <- liftIO $ RT.defaultInput
+  -- dev <- liftIO $ RT.defaultInput
 
-  RT.setCallback dev $ \_ msg -> do
-    when (V.length msg >= 3) $ liftIO $ do
-      putStrLn $ "id: " <> show (msg V.! 1) <> ", value: " <> show (msg V.! 2) <> ", ctrl: " <> show (msg V.! 0)
-      atomicModifyIORef' ccMap (\m -> (M.insert (msg V.! 1) (msg V.! 2) m, ()))
+  -- RT.setCallback dev $ \_ msg -> do
+  --   when (V.length msg >= 3) $ liftIO $ do
+  --     putStrLn $ "id: " <> show (msg V.! 1) <> ", value: " <> show (msg V.! 2) <> ", ctrl: " <> show (msg V.! 0)
+  --     atomicModifyIORef' ccMap (\m -> (M.insert (msg V.! 1) (msg V.! 2) m, ()))
 
-  RT.openPort dev 1 "syn"
+  -- RT.openPort dev 1 "syn"
 
   --
 
