@@ -97,7 +97,7 @@ feedback x = Op $ do
           destroyShader
       )
 
-  finalize (liftIO destroy) $ mapView (pure . f copy) $ runOp $ x $ Op $ view [out]
+  finalize (liftIO destroy) $ mapView (pure . f copy) $ unOp $ x $ Op $ view [out]
   where
     f copy [out] = Out
       { outRender = do
@@ -274,7 +274,7 @@ mapOp io op = Op $ do
           destroyShader
       )
   
-  finalize (liftIO destroy) $ mapView (pure . f) (runOp op)
+  finalize (liftIO destroy) $ mapView (pure . f) (unOp op)
 
   where
     fragT opts = [i|

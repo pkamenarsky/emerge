@@ -239,13 +239,13 @@ main = do
         let s = Time.systemSeconds now - Time.systemSeconds t0
         let ns = fi (Time.systemNanoseconds now) - fi (Time.systemNanoseconds t0) :: Int64
 
-        pure $ fi s + fi ns / 1000000000
+        pure $ Just $ fi s + fi ns / 1000000000
 
   bracket
     (GLFW.createWindow 1024 1024 "SYN" Nothing Nothing)
     (traverse_ GLFW.destroyWindow)
     $ \mWin -> do
-         let mousePos = Signal $ maybe (pure (0, 0)) GLFW.getCursorPos mWin
+         let mousePos = Signal $ sequenceA $ mWin >>= \win -> Just $ GLFW.getCursorPos win 
 
          mouseClick <- Run.newEvent
 
@@ -257,7 +257,7 @@ main = do
          rectBuf <- createRectBuffer
          (blitToScreen, _) <- blit rectBuf (GL.Size 1024 1024)
 
-         flip runReaderT (OpContext o rectBuf undefined undefined) $ for_ mWin (go dev ccMap False False mouseClick blitToScreen Nothing $ reinterpret $ runOp $ scene manager mouseClick time mousePos (Signal $ fmap (\ccMap' ccId -> fromMaybe 0 $ M.lookup ccId ccMap') (readIORef ccMap)))
+         flip runReaderT (OpContext o rectBuf undefined undefined) $ for_ mWin (go dev ccMap False False mouseClick blitToScreen Nothing $ reinterpret $ unOp $ scene manager mouseClick time mousePos (Signal $ undefined $ fmap (\ccMap' ccId -> fromMaybe 0 $ M.lookup ccId ccMap') (readIORef ccMap)))
 
   putStrLn "bye..."
 

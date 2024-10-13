@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -81,8 +82,7 @@ instance (KnownSymbol name, GLSLType a, GL.Uniform a) => GShaderParams (M1 S ('M
          when (loc < GL.UniformLocation 0) $
            putStrLn $ "WARNING: gShaderParams: uniform " <> n <> " not found"
 
-         -- pure $ signalValue a >>= (GL.uniform loc $=)
-         pure undefined
+         pure $ signalValue a >>= maybe (pure ()) (GL.uniform loc $=)
     )
     where
       n = spFieldLabelModifier opts $ symbolVal $ Proxy @name
@@ -238,8 +238,20 @@ instance KnownNat n => GL.Uniform (TexUniform n) where
 newtype Signal a = Signal (IO (Maybe a))
 
 instance Functor Signal where
+  fmap f (Signal a) = Signal (fmap (fmap f) a)
+
 instance Applicative Signal where
+  pure a = Signal (pure $ Just a)
+  Signal f <*> Signal a = Signal $ do
+    f' <- f
+    a' <- a
+    pure $ f' <*> a'
+
 instance Monad Signal where
+  Signal m >>= f = Signal $ do
+    m >>= \case
+      Just a -> case f a of Signal r -> r
+      Nothing -> pure Nothing
 
 signalValue :: MonadIO m => Signal a -> m (Maybe a)
 signalValue (Signal v) = liftIO v

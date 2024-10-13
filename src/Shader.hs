@@ -43,6 +43,7 @@ shader0 deriveOpts fragT params = Op $ do
 
     bindShader
     setUniforms <- initUniforms (saProgram attribs)
+    setUniforms
 
     (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
 
@@ -88,10 +89,11 @@ shader1 deriveOpts fragT params op0 = Op $ do
 
     bindShader
 
+    setUniforms <- initUniforms (saProgram attribs)
+    setUniforms
+
     loc0 <- GL.uniformLocation (saProgram attribs) tex0
     when (loc0 < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> tex0 <> " not found"
-
-    setUniforms <- initUniforms (saProgram attribs)
 
     (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
 
@@ -116,7 +118,7 @@ shader1 deriveOpts fragT params op0 = Op $ do
           destroyDrawRect
       )
 
-  finalize (liftIO destroy) $ mapView (pure . f) (runOp op0)
+  finalize (liftIO destroy) $ mapView (pure . f) (unOp op0)
 
 shader2
   :: ShaderParams params
@@ -147,13 +149,14 @@ shader2 deriveOpts fragT params op0 op1 = Op $ do
 
     bindShader
 
+    setUniforms <- initUniforms (saProgram attribs)
+    setUniforms
+
     loc0 <- GL.uniformLocation (saProgram attribs) tex0
     loc1 <- GL.uniformLocation (saProgram attribs) tex0
 
     when (loc0 < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> tex0 <> " not found"
     when (loc1 < GL.UniformLocation 0) $ error $ "gShaderParams: uniform " <> tex1 <> " not found"
-
-    setUniforms <- initUniforms (saProgram attribs)
 
     (drawRect, destroyDrawRect) <- createDrawRect rectBuf attribs
 
@@ -180,4 +183,4 @@ shader2 deriveOpts fragT params op0 op1 = Op $ do
           destroyDrawRect
       )
 
-  finalize (liftIO destroy) $ mapView (pure . f) $ asum [ runOp op0, runOp op1 ]
+  finalize (liftIO destroy) $ mapView (pure . f) $ asum [ unOp op0, unOp op1 ]

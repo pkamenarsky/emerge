@@ -64,6 +64,9 @@ fi = fromIntegral
 fsz :: Int
 fsz = sizeOf (undefined :: GL.GLfloat)
 
+ranged :: Float -> Float -> Float -> Float -> Float -> Float
+ranged a b c d x = a + (b - a) * ((x - c) / (d - c))
+
 -- Ops -------------------------------------------------------------------------
 
 data OpOptions = OpOptions
@@ -102,13 +105,18 @@ data OpContext = OpContext
   , ctxSignalCtx :: SignalContext
   }
 
-newtype Op a = Op { runOp :: Syn [Out] (ReaderT OpContext IO) a }
+newtype Op a = Op { unOp :: Syn [Out] (ReaderT OpContext IO) a }
   deriving (Functor, Applicative, Monad, Alternative, Semigroup)
 
 on :: EventFilter a -> Op a
 on e = Op $ do
   ctx <- lift ask
   ctxOn (ctxEventCtx ctx) e
+
+signals :: (SignalContext -> Op a) -> Op a
+signals f = Op $ do
+  ctx <- lift ask
+  unOp $ f (ctxSignalCtx ctx)
 
 --------------------------------------------------------------------------------
 

@@ -68,8 +68,15 @@ data EventContext = EventContext
 
 data SignalContext = SignalContext
   { time :: Signal Float
-  , ccRaw :: forall a. Num a => Word8 -> Signal (Maybe a)
+  , ccRaw :: forall a. Num a => Word8 -> Signal a
+  , mousePos :: Signal (Float, Float)
   }
+
+toRange :: Float -> Float -> Word8 -> Float
+toRange mi ma w = mi + (realToFrac w / 127.0 * (ma - mi))
+
+cc :: SignalContext -> Word8 -> Float -> Float -> Signal Float
+cc ctx ccId i a = fmap (toRange i a) (ccRaw ctx ccId)
 
 loop :: GLFW.Window -> (v -> IO ()) -> (SignalContext -> EventContext -> Syn [v] IO Void) -> IO ()
 loop win render syn = do
@@ -93,7 +100,8 @@ loop win render syn = do
 
   t0 <- Time.getSystemTime
 
-  let ccSig = Signal $ fmap (\ccMap' ccId -> M.lookup ccId ccMap') (readIORef ccMap)
+  let tf (a, b) = (realToFrac a, realToFrac b)
+
       sigCtx = SignalContext
         { time = Signal $ do
             now <- Time.getSystemTime
@@ -101,8 +109,10 @@ loop win render syn = do
             let s = Time.systemSeconds now - Time.systemSeconds t0
             let ns = fi (Time.systemNanoseconds now) - fi (Time.systemNanoseconds t0) :: Int64
 
-            pure $ fi s + fi ns / 1000000000
-        , ccRaw = \ccId -> fmap (fmap fromIntegral) (ccSig <*> pure ccId)
+            pure $ Just $ fi s + fi ns / 1000000000
+
+        , ccRaw = \ccId -> Signal $ readIORef ccMap >>= \m -> pure $ fmap fromIntegral $ M.lookup ccId m
+        , mousePos = Signal $ fmap (Just . tf) $ GLFW.getCursorPos win 
         }
 
       evtCtx = EventContext
