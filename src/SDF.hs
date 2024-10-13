@@ -55,10 +55,13 @@ data SDFDef = SDFDef
 newtype SDF = SDF { runSDF :: Pos -> W.WriterT [SDFDef] (ST.State Name) Pos }
 
 instance Semigroup SDF where
-  SDF s <> SDF t = SDF $ \p -> s p >>= t
+  (<>) = union'
+
+infinity :: Name
+infinity = Name 999999
 
 instance Monoid SDF where
-  mempty = SDF pure
+  mempty = SDF $ \_ -> pure infinity
 
 genName :: W.WriterT [SDFDef] (ST.State Name) Name
 genName = lift $ ST.state $ \(Name n) -> (Name n, Name (n + 1))
@@ -386,7 +389,8 @@ compile eval sdf = (compileDefs, setParams)
     (posn, defs) = flip ST.evalState pos1 $ W.runWriterT $ (runSDF sdf pos0)
 
     compileDefs = T.intercalate "\n" $ mconcat $
-      [ [ [i|\#include "#{include}"|]
+      [ [ [i|float #{name infinity} = 99999999.9;|] ]
+      , [ [i|\#include "#{include}"|]
         | includes <- fmap sdfIncludes defs <> [ sdfeIncludes eval ]
         , include <- includes
         ]

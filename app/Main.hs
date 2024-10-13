@@ -3,7 +3,7 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE NegativeLiterals #-}
+{-# LANGUAGE LexicalNegation #-}
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -157,9 +157,6 @@ scene = signals $ \SignalContext {..} -> do
   let b1 = circle o { radius = fmap (\(x, _) -> tf (x / 1024)) mousePos }
       b2 = circle o { radius = fmap (\(_, y) -> tf (y / 1024)) mousePos }
 
-  asum [ b1, on leftDown ]
-  asum [ b2, on leftDown ]
-
   let dode1 =
           translate o { vec = vec3 -0.5 0 0 }
         $ rotate o { axis = right, radians = fmap (\(_, y) -> tf (y / 100)) mousePos }
@@ -180,7 +177,7 @@ scene = signals $ \SignalContext {..} -> do
   let bounce offset = translate o { vec = vec3 0 offset 0 } $ do
         asum [ dode2, on_ leftDown ]
         asum [ sphere2, on_ leftDown ]
-        bounce (offset + 0.1)
+        bounce 0.1
 
   -- feedback $ \r -> blend o o { factor = pure 0.05 } r $ grain o { t = (/ 3) <$> time, multiplier = pure 20 }
   grain o { t = (/ 3) <$> time, multiplier = pure 20 }
@@ -188,7 +185,7 @@ scene = signals $ \SignalContext {..} -> do
     $ softUnion o { k = cc 16 0.1 10 }
         -- (softUnion o (plane o { normal = pure $ vec3 0 0 (1), planePoint = vec3 <$> pure 0 <*> pure 0 <*> cc 17 (-1) 1 }) dode1)
         dode1
-        (bounce 0)
+        (asum [bounce 0, bounce 0.1, bounce 0.2])
 
   feedback $ \r -> blend o o { factor = pure 0.01 } r $ asum [ blend o o b1 b2, on leftDown ]
 
