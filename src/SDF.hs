@@ -524,7 +524,6 @@ sdf eval sdfDefs = Op $ do
                 oldSet
                 oldDrawRect
               else do
-                print "new shit"
                 oldDestroyShader
                 oldDestroyDrawRect
 

@@ -135,7 +135,7 @@ loop win evtRef dev ccMap render syn = do
 
   liftIO $ do
     GLFW.setCursorInputMode win GLFW.CursorInputMode'Disabled
-    GLFW.setMouseButtonCallback win $ Just $ \_ button state modKeys -> print (button, state) >> modifyIORef' evtChan (InputMouse button state modKeys:)
+    GLFW.setMouseButtonCallback win $ Just $ \_ button state modKeys -> modifyIORef' evtChan (InputMouse button state modKeys:)
     GLFW.setKeyCallback win $ Just $ \_ key scanCode state modKeys -> modifyIORef' evtChan (InputKey key scanCode state modKeys:)
 
   let go mOut run = do
