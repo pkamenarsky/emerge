@@ -48,14 +48,20 @@ instance (Applicative m, Semigroup v, Semigroup a) => Semigroup (Syn v m a) wher
 instance MonadTrans (Syn v) where
   lift m = Syn $ liftF $ Lift m id
 
-mapView :: Applicative m => (u -> v) -> Syn u m a -> Syn v m a
+mapView, (<$$>) :: Applicative m => (u -> v) -> Syn u m a -> Syn v m a
 mapView f syn = Syn $ liftF $ MapView (pure . f) syn id
+
+(<$$>) = mapView
+infixl 4 <$$>
 
 mapViewM :: Applicative m => (u -> m v) -> Syn u m a -> Syn v m a
 mapViewM f syn = Syn $ liftF $ MapView f syn id
 
-apViewOr :: Applicative m => Syn (u -> v) m a -> Syn u m a -> Syn v m a
+apViewOr, (<**>) :: Applicative m => Syn (u -> v) m a -> Syn u m a -> Syn v m a
 apViewOr f syn = Syn $ liftF $ ApViewOr (mapView (fmap pure) f) syn id
+
+(<**>) = apViewOr
+infixl 4 <**>
 
 apViewOrM :: Applicative m => Syn (u -> m v) m a -> Syn u m a -> Syn v m a
 apViewOrM f syn = Syn $ liftF $ ApViewOr f syn id

@@ -12,7 +12,7 @@
 
 module Main (main) where
 
-import Control.Applicative
+import Control.Applicative hiding ((<**>))
 import Control.Exception
 import Control.Monad (forever, when, void)
 import Control.Monad.IO.Class
@@ -157,8 +157,8 @@ scene = signals $ \SignalContext {..} -> do
   let b1 = circle o { radius = fmap (\(x, _) -> tf (x / 1024)) mousePos }
       b2 = circle o { radius = fmap (\(_, y) -> tf (y / 1024)) mousePos }
 
-  let dode1 =
-          translate o { vec = vec3 -0.5 0 0 }
+  let dode1 offset =
+          translate o { vec = vec3 -0.5 offset 0 }
         $ rotate o { axis = right, radians = fmap (\(_, y) -> tf (y / 100)) mousePos }
         $ rotate o { axis = up, radians = fmap (\(x, _) -> tf (x / -100)) mousePos }
         $ dodecahedron o { radius = (ranged 0.2 0.3 0 1 . abs . sin . (* 7)) <$> time }
@@ -187,9 +187,9 @@ scene = signals $ \SignalContext {..} -> do
   -- feedback $ \r -> blend o o { factor = pure 0.05 } r $ grain o { t = (/ 3) <$> time, multiplier = pure 20 }
   grain o { t = (/ 3) <$> time, multiplier = pure 20 }
     $ sdf tr
-    $ softUnion o { k = cc 16 0.1 10 }
-        dode1
-        $ asum [bounce 0, bounce 0.1, bounce 0.2, on_ middleDown]
+    $ softUnion_ o { k = cc 16 0.1 10 }
+        <$$> softUnion o { k = pure 0.2 } (dode1 0.4) (dode1 -0.2) 
+        <**> asum [ bounce 0, bounce 0.1, bounce 0.2, on_ middleDown ]
 
   feedback $ \r -> blend o o { factor = pure 0.01 } r $ asum [ blend o o b1 b2, on leftDown ]
 
