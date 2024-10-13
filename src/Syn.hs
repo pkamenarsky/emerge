@@ -29,8 +29,8 @@ data SynF v m next
   | forall a. Lift (m a) (a -> next)
   | forall a. Finalize (m ()) (Syn v m a) (a -> next)
 
-  | forall u a. MapView (u -> v) (Syn u m a) (a -> next)
-  | forall u a. ApViewOr (Syn (u -> v) m a) (Syn u m a) (a -> next)
+  | forall u a. Applicative m => MapView (u -> m v) (Syn u m a) (a -> next)
+  | forall u a. Applicative m =>  ApViewOr (Syn (u -> m v) m a) (Syn u m a) (a -> next)
   | forall u a. Semigroup a => ApViewAnd (Syn (u -> v) m a) (Syn u m a) (a -> next)
 
 deriving instance Functor (SynF v m)
@@ -38,21 +38,27 @@ deriving instance Functor (SynF v m)
 newtype Syn v m a = Syn { unSyn :: Free (SynF v m) a }
   deriving (Functor, Applicative, Monad)
 
-instance Monoid v => Alternative (Syn v m) where
+instance (Applicative m, Monoid v) => Alternative (Syn v m) where
   empty = view' mempty >> forever
   a <|> b = apViewOr (mapView (\v -> (v <>)) a) b
 
-instance (Semigroup v, Semigroup a) => Semigroup (Syn v m a) where
+instance (Applicative m, Semigroup v, Semigroup a) => Semigroup (Syn v m a) where
   a <> b = apViewAnd (mapView (\v -> (v <>)) a) b
 
 instance MonadTrans (Syn v) where
   lift m = Syn $ liftF $ Lift m id
 
-mapView :: (u -> v) -> Syn u m a -> Syn v m a
-mapView f syn = Syn $ liftF $ MapView f syn id
+mapView :: Applicative m => (u -> v) -> Syn u m a -> Syn v m a
+mapView f syn = Syn $ liftF $ MapView (pure . f) syn id
 
-apViewOr :: Syn (u -> v) m a -> Syn u m a -> Syn v m a
-apViewOr f syn = Syn $ liftF $ ApViewOr f syn id
+mapViewM :: Applicative m => (u -> m v) -> Syn u m a -> Syn v m a
+mapViewM f syn = Syn $ liftF $ MapView f syn id
+
+apViewOr :: Applicative m => Syn (u -> v) m a -> Syn u m a -> Syn v m a
+apViewOr f syn = Syn $ liftF $ ApViewOr (mapView (fmap pure) f) syn id
+
+apViewOrM :: Applicative m => Syn (u -> m v) m a -> Syn u m a -> Syn v m a
+apViewOrM f syn = Syn $ liftF $ ApViewOr f syn id
 
 apViewAnd :: Semigroup a => Syn (u -> v) m a -> Syn u m a -> Syn v m a
 apViewAnd f syn = Syn $ liftF $ ApViewAnd f syn id
@@ -117,7 +123,7 @@ reinterpret (Syn (Free (MapView f syn next))) = go (unRun $ reinterpret syn)
     go y = do
       case y of
         Pure a -> reinterpret (Syn $ next a)
-        Free (YV v next')  -> yv (f v) >> go next'
+        Free (YV v next')  -> ya (f v) >>= yv >> go next'
         Free (YA a next')  -> ya a >>= go . next'
         Free (YB next')    -> yb >> go next'
         Free (YF fs next') -> yf fs >> go next'
@@ -145,16 +151,16 @@ reinterpret (Syn (Free (ApViewOr a b next))) = go [] [] (unRun $ reinterpret a) 
 
       -- both views
       (Free (YV aV aNext), Free (YV bV bNext)) -> do
-        yv (aV bV)
+        ya (aV bV) >>= yv
         go aFins bFins aNext bNext (Just aV) (Just bV)
 
       -- one view
       (Free (YV aV aNext), Free (YB bNext)) -> do
-        whenJust bPrV $ \bV' -> yv (aV bV')
+        whenJust bPrV $ \bV' -> ya (aV bV') >>= yv
         go aFins bFins aNext bNext (Just aV) bPrV
 
       (Free (YB aNext), Free (YV bV bNext)) -> do
-        whenJust aPrV $ \aV' -> yv (aV' bV)
+        whenJust aPrV $ \aV' -> ya (aV' bV) >>= yv
         go aFins bFins aNext bNext aPrV (Just bV)
 
       -- both blocked

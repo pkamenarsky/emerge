@@ -180,8 +180,8 @@ scene = signals $ \SignalContext {..} -> do
         bounce 0.1
 
   let tr = do
-        asum [ view $ trace "t1" o { maxIterations = pure 50 }, on_ rightDown ]
-        asum [ view $ trace "t2" o { maxIterations = pure 3 }, on_ rightDown ]
+        asum [ view $ trace o { maxIterations = pure 50 }, on_ rightDown ]
+        asum [ view $ trace o { maxIterations = pure 3 }, on_ rightDown ]
         tr
         
   -- feedback $ \r -> blend o o { factor = pure 0.05 } r $ grain o { t = (/ 3) <$> time, multiplier = pure 20 }
@@ -190,7 +190,7 @@ scene = signals $ \SignalContext {..} -> do
     $ softUnion o { k = cc 16 0.1 10 }
         -- (softUnion o (plane o { normal = pure $ vec3 0 0 (1), planePoint = vec3 <$> pure 0 <*> pure 0 <*> cc 17 (-1) 1 }) dode1)
         dode1
-        (asum [bounce 0, bounce 0.1, bounce 0.2])
+        (asum [bounce 0, bounce 0.1, bounce 0.2, on_ middleDown])
 
   feedback $ \r -> blend o o { factor = pure 0.01 } r $ asum [ blend o o b1 b2, on leftDown ]
 
@@ -202,13 +202,14 @@ scene = signals $ \SignalContext {..} -> do
     , on leftDown
     ]
 
-  feedback $ \r -> blend o o { factor = pure 0.05 } r $ sdf (view $ trace "t" o { maxIterations = pure 2, clearColor = color3_ <$> cc 14 0 1 <*> cc 15 0 1 <*> cc 16 0 1 })
+  feedback $ \r -> blend o o { factor = pure 0.05 } r $ sdf (view $ trace o { maxIterations = pure 2, clearColor = color3_ <$> cc 14 0 1 <*> cc 15 0 1 <*> cc 16 0 1 })
     $ rotate o { axis = vec3 1 0 0, radians = fmap (\(_, y) -> tf (y / 100)) mousePos }
     $ rotate o { axis = vec3 0 1 0, radians = fmap (\(x, _) -> tf (x / -100)) mousePos }
     $ box o { dimensions = vec3 0.5 0.5 0.3 }
 
   where
     leftDown = mouseDown GLFW.MouseButton'1
+    middleDown = mouseDown GLFW.MouseButton'3
     rightDown = mouseDown GLFW.MouseButton'2
 
 run :: Op Void -> IO ()

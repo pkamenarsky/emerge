@@ -233,7 +233,7 @@ translate' params sdf = SDF $ \pos -> do
 
   runSDF sdf newPos
 
-translate :: TranslateUniforms -> Syn SDF m a -> Syn SDF m a
+translate :: Applicative m => TranslateUniforms -> Syn SDF m a -> Syn SDF m a
 translate = mapView . translate'
 
 data RotateUniforms = RotateUniforms
@@ -261,7 +261,7 @@ rotate' params sdf = SDF $ \pos -> do
 
   runSDF sdf newPos
 
-rotate :: RotateUniforms -> Syn SDF m a -> Syn SDF m a
+rotate :: Applicative m => RotateUniforms -> Syn SDF m a -> Syn SDF m a
 rotate = mapView . rotate'
 
 -- csg -------------------------------------------------------------------------
@@ -282,7 +282,7 @@ union' sdfA sdfB = SDF $ \pos -> do
 
   pure newPos
 
-union :: Syn SDF m a -> Syn SDF m a -> Syn SDF m a
+union :: Applicative m => Syn SDF m a -> Syn SDF m a -> Syn SDF m a
 union s t = apViewOr (mapView union' s) t
 
 data SoftUnionUniforms = SoftUnionUniforms
@@ -312,7 +312,7 @@ softUnion' params sdfA sdfB = SDF $ \pos -> do
 
   pure newPos
 
-softUnion :: SoftUnionUniforms -> Syn SDF m a -> Syn SDF m a -> Syn SDF m a
+softUnion :: Applicative m => SoftUnionUniforms -> Syn SDF m a -> Syn SDF m a -> Syn SDF m a
 softUnion params s t = apViewOr (mapView (softUnion' params) s) t
 
 --------------------------------------------------------------------------------
@@ -335,16 +335,13 @@ instance Default TraceUniforms where
     }
 
 trace
-  :: Text -- TODO: hack :(((
-  -> TraceUniforms
+  :: TraceUniforms
   -> OpOptions
   -> SDFEval
-trace tag params opts = SDFEval
+trace params opts = SDFEval
   { sdfeIncludes = []
   , sdfeUniforms = paramUniforms u
   , sdfeBody = [i|
-float #{tag} = 666.0;
-
 vec3 getNormal(vec3 pos) {
   const float eps = 0.0001;
   const vec2 h = vec2(1., -1.);
@@ -484,53 +481,41 @@ sdf eval sdfDefs = Op $ do
     fbo <- createFramebuffer opts
     pure (fbo, ref)
 
-  finalize (destroy fbo ref) $ apViewOr (mapView (f opts fbo rectBuf ref) eval) sdfDefs
+  finalize (destroy fbo ref) $ apViewOrM (mapViewM (f opts fbo rectBuf ref) eval) sdfDefs
 
   where
-    destroy (_, _, destroyFBO) ref = do
-      st <- liftIO $ readIORef ref
+    destroy (_, _, destroyFBO) ref = liftIO $ do
+      st <- readIORef ref
 
-      for_ st $ \(_, (_, _, destroyShader), _, (_, destroyDrawRect)) -> liftIO $ do
-        _ <- destroyFBO
-        _ <- destroyShader
+      for_ st $ \(_, (_, _, destroyShader), _, (_, destroyDrawRect)) -> do
+        destroyFBO
+        destroyShader
         destroyDrawRect
 
     -- TODO: we're comparing shader sources here every frame, probably not the most efficient
-    f opts (tex, bindFBO, _) rectBuf ref evalDef sdfDef = pure $ Out
-      { outRender = do
-          let (fragT, init) = compile (evalDef opts) sdfDef
+    f opts fbo@(tex, bindFBO, _) rectBuf ref evalDef = pure $ \sdfDef -> liftIO $ do
+      st <- readIORef ref
 
-          let create = do
-                shSt@(attribs, bindShader, _) <- createShader Nothing fragT
-                rectSt@(drawRect, _) <- createDrawRect rectBuf attribs
+      for_ st $ \(_, (_, _, destroyShader), _, (_, destroyDrawRect)) -> do
+        destroyShader
+        destroyDrawRect
 
-                set <- init (saProgram attribs)
+      let (fragT, init) = compile (evalDef opts) sdfDef
 
-                writeIORef ref $ Just (fragT, shSt, set, rectSt)
+      shSt@(attribs, bindShader, _) <- createShader Nothing fragT
+      rectSt@(drawRect, _) <- createDrawRect rectBuf attribs
 
-                pure $ do
-                  bindFBO
-                  bindShader
-                  set
-                  drawRect
+      set <- init (saProgram attribs)
 
-          st <- readIORef ref
+      writeIORef ref $ Just (fragT, shSt, set, rectSt)
 
-          render <- case st of
-            Just (oldFragT, (_, oldBindShader, oldDestroyShader), oldSet, (oldDrawRect, oldDestroyDrawRect)) -> if oldFragT == fragT
-              then pure $ do
-                bindFBO
-                oldBindShader
-                oldSet
-                oldDrawRect
-              else do
-                oldDestroyShader
-                oldDestroyDrawRect
-
-                create
-            Nothing -> create
-              
-          render
-
-      , outTex = tex
-      }
+      pure
+        [ Out
+          { outRender = do
+              bindFBO
+              bindShader
+              set
+              drawRect
+          , outTex = tex
+          }
+        ]
