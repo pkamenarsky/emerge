@@ -25,11 +25,16 @@ import Data.Void
 data SynF v m next
   = View v next
   | Blocked next
-  | forall u a. Monoid u => MapView (u -> v) (Syn u m a) (a -> next)
+
   | forall a. Lift (m a) (a -> next)
   | forall a. Finalize (m ()) (Syn v m a) (a -> next)
+
+  | forall u a. Monoid u => MapView (u -> v) (Syn u m a) (a -> next)
+  | forall u a. Monoid u => ApViewOr (Syn (u -> v) m a) (Syn u m a) (a -> next)
+  | forall u a. (Monoid u, Semigroup a) => ApViewAnd (Syn (u -> v) m a) (Syn u m a) (a -> next)
+
   | forall a. Or (Syn v m a) (Syn v m a) (a -> next)
-  | forall a. Monoid a => And (Syn v m a) (Syn v m a) (a -> next)
+  | forall a. Semigroup a => And (Syn v m a) (Syn v m a) (a -> next)
 
 deriving instance Functor (SynF v m)
 
@@ -48,6 +53,12 @@ instance MonadTrans (Syn v) where
 
 mapView :: Monoid u => (u -> v) -> Syn u m a -> Syn v m a
 mapView f syn = Syn $ liftF $ MapView f syn id
+
+apViewOr :: Monoid u => Syn (u -> v) m a -> Syn u m a -> Syn v m a
+apViewOr f syn = Syn $ liftF $ ApViewOr f syn id
+
+apViewAnd :: Monoid u => Semigroup a => Syn (u -> v) m a -> Syn u m a -> Syn v m a
+apViewAnd f syn = Syn $ liftF $ ApViewAnd f syn id
 
 forever :: Syn v m a
 forever = Syn $ Free $ Blocked $ unSyn forever
@@ -90,6 +101,10 @@ yb = Run $ liftF $ YB ()
 yf :: [m ()] -> Run v m ()
 yf fins = Run $ liftF $ YF fins ()
 
+whenJust :: Applicative m => Maybe a -> (a -> m ()) -> m ()
+whenJust (Just a) f = f a
+whenJust Nothing _ = pure ()
+
 reinterpret :: Monad m => Monoid v => Syn v m a -> Run v m a
 
 reinterpret (Syn (Pure a)) = pure a
@@ -107,6 +122,83 @@ reinterpret (Syn (Free (MapView f syn next))) = go (unRun $ reinterpret syn)
         Free (YA a next')  -> ya a >>= go . next'
         Free (YB next')    -> yb >> go next'
         Free (YF fs next') -> yf fs >> go next'
+
+reinterpret (Syn (Free (ApViewOr a b next))) = go [] [] (unRun $ reinterpret a) (unRun $ reinterpret b) Nothing Nothing
+  where
+    go aFins bFins aY bY aPrV bPrV = case (aY, bY) of
+      -- finalizers
+      (Free (YF fs next'), x) -> yf (fs <> bFins) >> go fs bFins next' x aPrV bPrV
+      (x, Free (YF fs next')) -> yf (aFins <> fs) >> go aFins fs x next' aPrV bPrV
+
+      -- actions
+      (Free (YA act aNext), x) -> ya act >>= \a' -> go aFins bFins (aNext a') x aPrV bPrV
+      (x, Free (YA act bNext)) -> ya act >>= \a' -> go aFins bFins x (bNext a') aPrV bPrV
+
+      -- one finished
+      (Pure r, _) -> do
+        ya $ sequence_ bFins
+        yf []
+        reinterpret (Syn $ next r)
+      (_, Pure r) -> do
+        ya $ sequence_ aFins
+        yf []
+        reinterpret (Syn $ next r)
+
+      -- both views
+      (Free (YV aV aNext), Free (YV bV bNext)) -> yv (aV bV) >> go aFins bFins aNext bNext (Just aV) (Just bV)
+
+      -- one view
+      (Free (YV aV aNext), Free (YB bNext)) -> do
+        whenJust bPrV $ \bV' -> yv (aV bV')
+        go aFins bFins aNext bNext (Just aV) bPrV
+
+      (Free (YB aNext), Free (YV bV bNext)) -> do
+        whenJust aPrV $ \aV' -> yv (aV' bV)
+        go aFins bFins aNext bNext aPrV (Just bV)
+
+      -- both blocked
+      (Free (YB aNext), Free (YB bNext)) -> yb >> go aFins bFins aNext bNext aPrV bPrV
+        -- Free (YF fs next') -> yf fs >> go next'
+
+reinterpret (Syn (Free (ApViewAnd a b next))) = go [] [] (unRun $ reinterpret a) (unRun $ reinterpret b) Nothing Nothing
+  where
+    go aFins bFins aY bY aPrV bPrV = case (aY, bY) of
+      -- finalizers
+      (Free (YF fs next'), x) -> yf (fs <> bFins) >> go fs bFins next' x aPrV bPrV
+      (x, Free (YF fs next')) -> yf (aFins <> fs) >> go aFins fs x next' aPrV bPrV
+
+      -- actions
+      (Free (YA act aNext), x) -> ya act >>= \a' -> go aFins bFins (aNext a') x aPrV bPrV
+      (x, Free (YA act bNext)) -> ya act >>= \a' -> go aFins bFins x (bNext a') aPrV bPrV
+
+      -- both finished
+      (Pure aR, Pure bR) -> reinterpret $ Syn $ next (aR <> bR)
+
+      -- both views
+      (Free (YV aV aNext), Free (YV bV bNext)) -> yv (aV bV) >> go aFins bFins aNext bNext (Just aV) (Just bV)
+
+      -- one view
+      (Free (YV aV aNext), Free (YB bNext)) -> do
+        whenJust bPrV $ \bV' -> yv (aV bV')
+        go aFins bFins aNext bNext (Just aV) bPrV
+      (Free (YV aV aNext), x@(Pure _))      -> do
+        whenJust bPrV $ \bV' -> yv (aV bV')
+        go aFins bFins aNext x (Just aV) bPrV
+
+      (Free (YB aNext), Free (YV bV bNext)) -> do
+        whenJust aPrV $ \aV' -> yv (aV' bV)
+        go aFins bFins aNext bNext aPrV (Just bV)
+      (x@(Pure _), Free (YV bV bNext))      -> do
+        whenJust aPrV $ \aV' -> yv (aV' bV)
+        go aFins bFins x bNext aPrV (Just bV)
+
+      -- both blocked
+      (Free (YB aNext), Free (YB bNext)) -> yb >> go aFins bFins aNext bNext aPrV bPrV
+
+      -- one blocked, the other finished
+      (Free (YB aNext), x@(Pure _)) -> yb >> go aFins bFins aNext x aPrV bPrV
+      (x@(Pure _), Free (YB bNext)) -> yb >> go aFins bFins x bNext aPrV bPrV
+
 
 reinterpret (Syn (Free (Finalize fin syn next))) = do
   yf [fin]
