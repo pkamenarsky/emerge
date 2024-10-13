@@ -78,36 +78,30 @@ toRange mi ma w = mi + (realToFrac w / 127.0 * (ma - mi))
 cc :: SignalContext -> Word8 -> Float -> Float -> Signal Float
 cc ctx ccId i a = fmap (toRange i a) (ccRaw ctx ccId)
 
-signalContext :: GLFW.Window -> IO SignalContext
+signalContext :: GLFW.Window -> IO (RT.InputDevice, IORef (M.Map Word8 Word8), SignalContext)
 signalContext win = do
-  -- MIDI
   ccMap <- newIORef M.empty
 
-  -- dev <- liftIO $ RT.defaultInput
-
-  -- RT.setCallback dev $ \_ msg -> do
-  --   when (V.length msg >= 3) $ liftIO $ do
-  --     putStrLn $ "id: " <> show (msg V.! 1) <> ", value: " <> show (msg V.! 2) <> ", ctrl: " <> show (msg V.! 0)
-  --     atomicModifyIORef' ccMap (\m -> (M.insert (msg V.! 1) (msg V.! 2) m, ()))
-
-  -- RT.openPort dev 1 "syn"
-
-  --
+  dev <- liftIO $ RT.defaultInput
+  RT.openPort dev 1 "syn"
 
   t0 <- Time.getSystemTime
 
-  pure $ SignalContext
-    { time = Signal $ do
-        now <- Time.getSystemTime
+  let sigCtx = SignalContext
+        { time = Signal $ do
+            now <- Time.getSystemTime
 
-        let s = Time.systemSeconds now - Time.systemSeconds t0
-        let ns = fi (Time.systemNanoseconds now) - fi (Time.systemNanoseconds t0) :: Int64
+            let s = Time.systemSeconds now - Time.systemSeconds t0
+            let ns = fi (Time.systemNanoseconds now) - fi (Time.systemNanoseconds t0) :: Int64
 
-        pure $ Just $ fi s + fi ns / 1000000000
+            pure $ Just $ fi s + fi ns / 1000000000
 
-    , ccRaw = \ccId -> Signal $ readIORef ccMap >>= \m -> pure $ fmap fi $ M.lookup ccId m
-    , mousePos = Signal $ fmap (Just . tf) $ GLFW.getCursorPos win 
-    }
+        , ccRaw = \ccId -> Signal $ readIORef ccMap >>= \m -> pure $ fmap fi $ M.lookup ccId m
+        , mousePos = Signal $ fmap (Just . tf) $ GLFW.getCursorPos win 
+        }
+
+  pure (dev, ccMap, sigCtx)
+
   where
     fi :: (Integral a, Num b) => a -> b
     fi = fromIntegral
@@ -135,8 +129,8 @@ eventContext = do
 
   pure (evtRef, evtCtx)
 
-loop :: MonadIO m => GLFW.Window -> IORef (Maybe Input) -> (v -> IO ()) -> Syn [v] m Void -> m ()
-loop win evtRef render syn = do
+loop :: MonadIO m => GLFW.Window -> IORef (Maybe Input) -> RT.InputDevice -> IORef (M.Map Word8 Word8) -> (v -> IO ()) -> Syn [v] m Void -> m ()
+loop win evtRef dev ccMap render syn = do
   evtChan <- liftIO $ newIORef []
 
   liftIO $ do
@@ -152,6 +146,12 @@ loop win evtRef render syn = do
             pure True
 
         when running $ do
+          (_, msg) <- liftIO $ RT.getMessage dev
+
+          when (V.length msg >= 3) $ liftIO $ do
+            putStrLn $ "id: " <> show (msg V.! 1) <> ", value: " <> show (msg V.! 2) <> ", ctrl: " <> show (msg V.! 0)
+            atomicModifyIORef' ccMap (\m -> (M.insert (msg V.! 1) (msg V.! 2) m, ()))
+
           (next, rOut) <- unblock run
 
           -- [0]

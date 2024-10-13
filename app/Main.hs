@@ -214,16 +214,6 @@ run op = do
   GLFW.windowHint $ GLFW.WindowHint'ContextVersionMinor 6
   GLFW.windowHint $ GLFW.WindowHint'OpenGLProfile GLFW.OpenGLProfile'Core
 
-  mWin <- GLFW.createWindow 1024 1024 "SYN" Nothing Nothing
-  GLFW.makeContextCurrent mWin
-  GL.debugMessageCallback $= Just dbg
-
-  rectBuf <- createRectBuffer
-  (blitToScreen, _) <- blit rectBuf (GL.Size 1024 1024)
-
-  (evtRef, evtCtx) <- eventContext
-  sigCtx <- for_ mWin signalContext
-
   bracket
     (GLFW.createWindow 1024 1024 "SYN" Nothing Nothing)
     (traverse_ GLFW.destroyWindow)
@@ -236,9 +226,9 @@ run op = do
            (blitToScreen, _) <- blit rectBuf (GL.Size 1024 1024)
 
            (evtRef, evtCtx) <- eventContext
-           sigCtx <- signalContext win
+           (midiDev, ccMap, sigCtx) <- signalContext win
 
-           flip runReaderT (OpContext o rectBuf evtCtx sigCtx) $ loop win evtRef (render blitToScreen) (unOp op)
+           flip runReaderT (OpContext o rectBuf evtCtx sigCtx) $ loop win evtRef midiDev ccMap (render blitToScreen) (unOp op)
 
   putStrLn "bye..."
 
