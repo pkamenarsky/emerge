@@ -1,4 +1,7 @@
+* TODO write `Monoid Out` instance (additive blend)
+* TODO wirte `apView :: Syn (u -> v) m a -> Syn u m a -> Syn v m a`
 * TODO come up with a way to mark "missing" signals (e.g. ccs)
+** is this not just Signal (Maybe v)?
 * IDEA livecoding esolang
 blend (circle 14 15) *
       sdf * d * e * f * g

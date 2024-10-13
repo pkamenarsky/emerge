@@ -81,7 +81,8 @@ instance (KnownSymbol name, GLSLType a, GL.Uniform a) => GShaderParams (M1 S ('M
          when (loc < GL.UniformLocation 0) $
            putStrLn $ "WARNING: gShaderParams: uniform " <> n <> " not found"
 
-         pure $ signalValue a >>= (GL.uniform loc $=)
+         -- pure $ signalValue a >>= (GL.uniform loc $=)
+         pure undefined
     )
     where
       n = spFieldLabelModifier opts $ symbolVal $ Proxy @name
@@ -234,11 +235,14 @@ instance KnownNat n => GL.Uniform (TexUniform n) where
 
 --------------------------------------------------------------------------------
 
-newtype Signal a = Signal (IO a)
-  deriving (Functor, Applicative, Monad)
+newtype Signal a = Signal (IO (Maybe a))
 
-signalValue :: MonadIO m => Signal a -> m a
+instance Functor Signal where
+instance Applicative Signal where
+instance Monad Signal where
+
+signalValue :: MonadIO m => Signal a -> m (Maybe a)
 signalValue (Signal v) = liftIO v
 
-signalValueIO :: Signal a -> IO a
+signalValueIO :: Signal a -> IO (Maybe a)
 signalValueIO (Signal v) = v

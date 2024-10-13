@@ -3,6 +3,7 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NegativeLiterals #-}
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -12,6 +13,7 @@
 
 module Event where
 
+import Control.Monad (when)
 import Control.Monad.IO.Class
 
 import Data.Foldable
@@ -32,6 +34,7 @@ import Types
 import Syn
 
 import GHC.Int
+import GHC.Word
 
 import qualified Sound.RtMidi as RT
 
@@ -64,12 +67,23 @@ data EventContext = EventContext
   }
 
 data SignalContext = SignalContext
-  { ctxTime :: Signal Float
+  { time :: Signal Float
+  , ccRaw :: forall a. Num a => Word8 -> Signal (Maybe a)
   }
 
 loop :: GLFW.Window -> (v -> IO ()) -> (SignalContext -> EventContext -> Syn [v] IO Void) -> IO ()
 loop win render syn = do
   evtChan <- newIORef []
+
+  ccMap <- newIORef mempty :: IO (IORef (M.Map Word8 Word8))
+  dev <- RT.defaultInput
+
+  RT.setCallback dev $ \_ msg -> do
+   when (V.length msg >= 3) $ liftIO $ do
+     putStrLn $ "id: " <> show (msg V.! 1) <> ", value: " <> show (msg V.! 2) <> ", ctrl: " <> show (msg V.! 0)
+     atomicModifyIORef' ccMap (\m -> (M.insert (msg V.! 1) (msg V.! 2) m, ()))
+
+  RT.openPort dev 1 "syn"
 
   GLFW.setCursorInputMode win GLFW.CursorInputMode'Disabled
   GLFW.setMouseButtonCallback win $ Just $ \_ button state modKeys -> modifyIORef' evtChan (InputMouse button state modKeys:)
@@ -79,14 +93,16 @@ loop win render syn = do
 
   t0 <- Time.getSystemTime
 
-  let sigCtx = SignalContext
-        { ctxTime = Signal $ do
+  let ccSig = Signal $ fmap (\ccMap' ccId -> M.lookup ccId ccMap') (readIORef ccMap)
+      sigCtx = SignalContext
+        { time = Signal $ do
             now <- Time.getSystemTime
 
             let s = Time.systemSeconds now - Time.systemSeconds t0
             let ns = fi (Time.systemNanoseconds now) - fi (Time.systemNanoseconds t0) :: Int64
 
             pure $ fi s + fi ns / 1000000000
+        , ccRaw = \ccId -> fmap (fmap fromIntegral) (ccSig <*> pure ccId)
         }
 
       evtCtx = EventContext
@@ -105,18 +121,28 @@ loop win render syn = do
         }
 
       go mOut run = do
-        atomicModifyIORef evtChan nextEvent >>= writeIORef evtRef
-        (next, rOut) <- unblock run
+        running <- atomicModifyIORef evtChan nextEvent >>= \case
+          Just (InputKey GLFW.Key'Escape _ GLFW.KeyState'Pressed _) -> pure False
+          e -> do
+            writeIORef evtRef e
+            pure True
 
-        -- [0]
-        writeIORef evtRef Nothing
-        (next', rOut') <- unblock next
+        when running $ do
+          (next, rOut) <- unblock run
 
-        let mOut' = asum [rOut' >>= maybeHead, rOut >>= maybeHead, mOut]
+          -- [0]
+          writeIORef evtRef Nothing
+          (next', rOut') <- unblock next
 
-        for_ mOut' render
+          let mOut' = asum [rOut' >>= maybeHead, rOut >>= maybeHead, mOut]
 
-        go mOut' next'
+          for_ mOut' render
+
+          liftIO $ do
+            GLFW.swapBuffers win
+            GLFW.pollEvents
+
+          go mOut' next'
 
   go Nothing $ reinterpret (syn sigCtx evtCtx)
 
