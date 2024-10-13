@@ -157,6 +157,9 @@ scene = signals $ \SignalContext {..} -> do
   let b1 = circle o { radius = fmap (\(x, _) -> tf (x / 1024)) mousePos }
       b2 = circle o { radius = fmap (\(_, y) -> tf (y / 1024)) mousePos }
 
+  asum [ b1, on leftDown ]
+  asum [ b2, on leftDown ]
+
   let dode1 =
           translate o { vec = vec3 -0.5 0 0 }
         $ rotate o { axis = right, radians = fmap (\(_, y) -> tf (y / 100)) mousePos }

@@ -103,14 +103,14 @@ testMapView = do
   cmp ref [3]
   where
     syn e = do
-      mapView (\as -> [sum as]) $ asum [ view [1], view [2], on e ]
+      mapView (\as -> [sum as]) $ asum [ view [1], view [2], view' [] >> on e ]
       syn e
 
 testAltSem :: IO ()
 testAltSem = do
   ref <- newIORef ""
   e <- newEvent :: IO (Event ())
-  Just fire <- animate (fromArr $ toArr $ reinterpret $ s1 e) (writeIORef ref)
+  Just fire <- animate (s1 e) (writeIORef ref)
 
   cmp ref "AAC"
   fire e ()
@@ -129,14 +129,14 @@ testAltSem = do
   where
     s1 e = do
       pure ()
-      r <- sconcat $ NE.fromList [ asum [ view "A", view "A", view "C", on e >> pure "R" ], on e >> pure "R", on e >> pure "S" ]
-      _ <- asum [ view r, on e]
+      r <- sconcat $ NE.fromList [ asum [ view "A", view "A", view "C", view' "" >> on e >> pure "R" ], view' "" >> on e >> pure "R", view' "" >> on e >> pure "S" ]
+      _ <- asum [ view r, view' "" >> on e]
       _ <- asum
         [ do
-            _ <- asum [ pure () >> view "X", on e ]
+            _ <- asum [ pure () >> view "X", view' "" >> on e ]
             pure ()
             pure ()
-            _ <- asum [ view "Y", on e ]
+            _ <- asum [ view "Y", view' "" >> on e ]
             pure ()
         , view "Z"
         ]
@@ -154,13 +154,13 @@ testAltSem = do
             view "B"
         , do
             pure ()
-            _ <- on e
+            _ <- view' "" >> on e
             pure ()
         ]
       pure ()
       pure ()
       pure ()
-      asum [ view "C", on e ]
+      asum [ view "C", view' "" >> on e ]
       s1 e
 
 main :: IO ()
