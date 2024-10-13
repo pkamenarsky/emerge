@@ -11,6 +11,20 @@ packages:
       size: 861
   original:
     hackage: RtMidi-0.8.0.0
+- completed:
+    hackage: hsc3-0.20@sha256:4e34f7a544cb7c5bfbf21e351707e032dbf1db4e661edb47c40260594421fdf5,5823
+    pantry-tree:
+      sha256: 1caa4686cb969714bbbaa6dca871881d89e0c5b24692ae38ff8f2072f837c69d
+      size: 61576
+  original:
+    hackage: hsc3-0.20
+- completed:
+    hackage: hosc-0.20@sha256:5aa9985a65a7b31fd3707dc04bf6221273a83d2f47009f816622114ff6c59bac,2077
+    pantry-tree:
+      sha256: 30289a03bb0c49332d7eaf39182bf71314846d377886b62591dcf699acfee9e5
+      size: 1753
+  original:
+    hackage: hosc-0.20
 snapshots:
 - completed:
     sha256: a27a5761890ade44d7dd21a5f5f93c87e60b9c063655fff835d69dd1071474f0

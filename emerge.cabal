@@ -54,6 +54,8 @@ library
     , containers
     , filepath
     , free
+    , hosc
+    , hsc3
     , http-client
     , machines
     , primitive
@@ -88,6 +90,8 @@ executable emerge-exe
     , emerge
     , filepath
     , free
+    , hosc
+    , hsc3
     , http-client
     , machines
     , primitive
@@ -123,6 +127,8 @@ test-suite emerge-test
     , emerge
     , filepath
     , free
+    , hosc
+    , hsc3
     , http-client
     , machines
     , primitive

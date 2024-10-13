@@ -48,6 +48,8 @@ import Syn hiding (forever)
 import Syn.Run (Event (Event))
 import qualified Syn.Run as Run
 
+import Sound.Sc3 hiding (blend)
+
 import GHC.Generics
 import GHC.Int
 import GHC.Word
@@ -250,3 +252,12 @@ run op = do
 
 main :: IO ()
 main = run scene
+
+h = withSc3 reset
+
+main2 = withSc3 $ do
+  reset
+  let k = sinOsc kr 10 0 * 100
+
+  play $ out 0 (sinOsc ar (440 + k) 0 * 0.2)
+  play $ out 1 (sinOsc ar 550 0 * 0.3)
