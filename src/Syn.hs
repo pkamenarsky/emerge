@@ -31,6 +31,7 @@ data SynF v m next
 
   | forall u a. MapView (u -> v) (Syn u m a) (a -> next)
   | forall u a. ApViewOr (Syn (u -> v) m a) (Syn u m a) (a -> next)
+  | forall u a. BindViewOr (Syn (u -> Syn v m ()) m a) (Syn u m a) (a -> next)
   | forall u a. Semigroup a => ApViewAnd (Syn (u -> v) m a) (Syn u m a) (a -> next)
 
 deriving instance Functor (SynF v m)
@@ -53,6 +54,9 @@ mapView f syn = Syn $ liftF $ MapView f syn id
 
 apViewOr :: Syn (u -> v) m a -> Syn u m a -> Syn v m a
 apViewOr f syn = Syn $ liftF $ ApViewOr f syn id
+
+bindViewOr :: Syn (u -> Syn v m ()) m a -> Syn u m a -> Syn v m a
+bindViewOr f syn = Syn $ liftF $ BindViewOr f syn id
 
 apViewAnd :: Semigroup a => Syn (u -> v) m a -> Syn u m a -> Syn v m a
 apViewAnd f syn = Syn $ liftF $ ApViewAnd f syn id
@@ -121,6 +125,63 @@ reinterpret (Syn (Free (MapView f syn next))) = go (unRun $ reinterpret syn)
         Free (YA a next')  -> ya a >>= go . next'
         Free (YB next')    -> yb >> go next'
         Free (YF fs next') -> yf fs >> go next'
+
+reinterpret (Syn (Free (BindViewOr a b next))) = go [] [] (unRun $ reinterpret a) (unRun $ reinterpret b) Nothing Nothing
+  where
+    go aFins bFins aY bY aPrV bPrV = case (aY, bY) of
+      -- finalizers
+      (Free (YF fs next'), x) -> yf (fs <> bFins) >> go fs bFins next' x aPrV bPrV
+      (x, Free (YF fs next')) -> yf (aFins <> fs) >> go aFins fs x next' aPrV bPrV
+
+      -- actions
+      (Free (YA act aNext), x) -> ya act >>= \a' -> go aFins bFins (aNext a') x aPrV bPrV
+      (x, Free (YA act bNext)) -> ya act >>= \a' -> go aFins bFins x (bNext a') aPrV bPrV
+
+      -- one finished
+      (Pure r, _) -> do
+        ya $ sequence_ bFins
+        yf []
+        reinterpret (Syn $ next r)
+      (_, Pure r) -> do
+        ya $ sequence_ aFins
+        yf []
+        reinterpret (Syn $ next r)
+
+      -- both views
+      -- (Free (YV aV aNext), Free (YV bV bNext)) -> do
+      --   yv (aV bV)
+      --   go aFins bFins aNext bNext (Just aV) (Just bV)
+
+      -- one view
+      (Free (YV aVm aNext), Free (YB bNext)) -> do
+        case bPrV of
+          Just bV' -> do
+            let go' y = do
+                  case y of
+                    Pure () -> do
+                      -- TODO: see above
+                      yf []
+                      go aFins bFins aNext bNext Nothing bPrV
+                    Free (YV v next')  -> do
+                      yv v
+                      go aFins bFins (_ $ go' next') bNext (Just aVm) bPrV
+                      
+                      -- go' next'
+                    Free (YA a next')  -> ya a >>= go' . next'
+                    Free (YB next')    -> yb >> go' next'
+                    Free (YF fs next') -> yf fs >> go' next'
+            go' $ unRun $ reinterpret (aVm bV')
+
+          Nothing -> go aFins bFins aNext bNext (Just aVm) bPrV
+
+      -- (Free (YB aNext), Free (YV bV bNext)) -> do
+      --   whenJust aPrV $ \aV' -> yv (aV' bV)
+      --   go aFins bFins aNext bNext aPrV (Just bV)
+
+      -- both blocked
+      (Free (YB aNext), Free (YB bNext)) -> yb >> go aFins bFins aNext bNext aPrV bPrV
+        -- Free (YF fs next') -> yf fs >> go next'
+
 
 reinterpret (Syn (Free (ApViewOr a b next))) = go [] [] (unRun $ reinterpret a) (unRun $ reinterpret b) Nothing Nothing
   where
