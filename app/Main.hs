@@ -6,6 +6,7 @@
 {-# LANGUAGE NegativeLiterals #-}
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE QuasiQuotes #-}
 
@@ -37,6 +38,7 @@ import Network.HTTP.Client
 -- import Network.HTTP.Client.MultipartFormData
 
 import Common
+import Event
 import Shader
 import Ops
 import Types
@@ -148,11 +150,11 @@ void main() {
 
 --------------------------------------------------------------------------------
 
-on :: Event a -> Op a
-on = Op . Run.on
+scene :: Op a
+scene = signals $ \SignalContext {..} -> do
+  let cc :: Word8 -> Float -> Float -> Signal Float
+      cc ccId i a = fmap (toRange i a) (ccRaw ccId)
 
-scene :: Manager -> Event () -> Signal Float -> Signal (Double, Double) -> Signal (Word8 -> Word8) -> Op a
-scene _manager mouseClick time mousePos ccMap = do
   let b1 = circle o { radius = fmap (\(x, _) -> tf (x / 1024)) mousePos }
       b2 = circle o { radius = fmap (\(_, y) -> tf (y / 1024)) mousePos }
 
@@ -174,8 +176,8 @@ scene _manager mouseClick time mousePos ccMap = do
         $ sphere o { radius = (ranged 0.3 0.5 0 1 . abs . sin . (* 3)) <$> time }
 
   let bounce offset = translate o { vec = vec3 0 offset 0 } $ do
-        asum [ dode2, Run.on mouseClick ]
-        asum [ sphere2, Run.on mouseClick ]
+        asum [ dode2, on_ leftDown ]
+        asum [ sphere2, on_ leftDown ]
         bounce (offset + 0.1)
 
   -- feedback $ \r -> blend o o { factor = pure 0.05 } r $ grain o { t = (/ 3) <$> time, multiplier = pure 20 }
@@ -186,14 +188,14 @@ scene _manager mouseClick time mousePos ccMap = do
         dode1
         (bounce 0)
 
-  feedback $ \r -> blend o o { factor = pure 0.01 } r $ asum [ blend o o b1 b2, Main.on mouseClick ]
+  feedback $ \r -> blend o o { factor = pure 0.01 } r $ asum [ blend o o b1 b2, on leftDown ]
 
   feedback $ \r -> blend o o { factor = pure 0.01 } r $ asum
     [ gptShader0 o
         { p0 = fmap (\(x, _) -> ranged 1 10 0 1024 (tf x)) mousePos
         , p1 = fmap (\(_, y) -> ranged 1 10 0 1024 (tf y)) mousePos
         }
-    , Main.on mouseClick
+    , on leftDown
     ]
 
   feedback $ \r -> blend o o { factor = pure 0.05 } r $ sdf (trace o { maxIterations = pure 2, clearColor = color3_ <$> cc 14 0 1 <*> cc 15 0 1 <*> cc 16 0 1 })
@@ -202,28 +204,10 @@ scene _manager mouseClick time mousePos ccMap = do
     $ box o { dimensions = vec3 0.5 0.5 0.3 }
 
   where
-    ranged :: Float -> Float -> Float -> Float -> Float -> Float
-    ranged a b c d x = a + (b - a) * ((x - c) / (d - c))
+    leftDown = mouseDown GLFW.MouseButton'1
 
-    toRange :: Float -> Float -> Word8 -> Float
-    toRange mi ma w = mi + (realToFrac w / 127.0 * (ma - mi))
-
-    cc :: Word8 -> Float -> Float -> Signal Float
-    cc ccId i a = fmap (toRange i a) (ccValue ccId)
-
-    ccValue :: Num a => Word8 -> Signal a
-    ccValue ccId = fmap fromIntegral (ccMap <*> pure ccId)
-
-
-main :: IO ()
-main = do
-  dev <- RT.defaultInput
-  RT.openPort dev 1 "syn"
-
-  ccMap <- newIORef mempty :: IO (IORef (M.Map Word8 Word8))
-
-  manager <- newManager defaultManagerSettings
-
+run :: Op Void -> IO ()
+run op = do
   _ <- GLFW.init
 
   GLFW.windowHint $ GLFW.WindowHint'OpenGLDebugContext True
@@ -231,101 +215,28 @@ main = do
   GLFW.windowHint $ GLFW.WindowHint'ContextVersionMinor 6
   GLFW.windowHint $ GLFW.WindowHint'OpenGLProfile GLFW.OpenGLProfile'Core
 
-  t0 <- Time.getSystemTime
-
-  let time = Signal $ do
-        now <- Time.getSystemTime
-
-        let s = Time.systemSeconds now - Time.systemSeconds t0
-        let ns = fi (Time.systemNanoseconds now) - fi (Time.systemNanoseconds t0) :: Int64
-
-        pure $ Just $ fi s + fi ns / 1000000000
-
   bracket
     (GLFW.createWindow 1024 1024 "SYN" Nothing Nothing)
     (traverse_ GLFW.destroyWindow)
     $ \mWin -> do
-         let mousePos = Signal $ sequenceA $ mWin >>= \win -> Just $ GLFW.getCursorPos win 
-
-         mouseClick <- Run.newEvent
-
          GLFW.makeContextCurrent mWin
-         for_ mWin $ \win -> GLFW.setCursorInputMode win GLFW.CursorInputMode'Disabled
-
          GL.debugMessageCallback $= Just dbg
 
          rectBuf <- createRectBuffer
          (blitToScreen, _) <- blit rectBuf (GL.Size 1024 1024)
 
-         flip runReaderT (OpContext o rectBuf undefined undefined) $ for_ mWin (go dev ccMap False False mouseClick blitToScreen Nothing $ reinterpret $ unOp $ scene manager mouseClick time mousePos (Signal $ undefined $ fmap (\ccMap' ccId -> fromMaybe 0 $ M.lookup ccId ccMap') (readIORef ccMap)))
+         for_ mWin $ \win -> do
+           (evtRef, evtCtx) <- eventContext
+           sigCtx <- signalContext win
+
+           flip runReaderT (OpContext o rectBuf evtCtx sigCtx) $ loop win evtRef (\out -> blitToScreen (outTex out)) (unOp op)
 
   putStrLn "bye..."
 
   where
-    frameByFrame = False
-
     dbg msg@(GL.DebugMessage _ _ _ severity _) = do
       case severity of
         GL.DebugSeverityNotification -> pure ()
         _ -> traceIO $ show msg
 
-    clicked :: Bool -> Bool -> Bool
-    clicked False True = True
-    clicked _ _ = False
-
-    maybeHead :: [a] -> Maybe a
-    maybeHead (a:_) = Just a
-    maybeHead _ = Nothing
-
-    go :: RT.InputDevice -> IORef (M.Map Word8 Word8) -> Bool -> Bool -> Event () -> (GL.TextureObject -> IO ()) -> Maybe Out -> Run [Out] (ReaderT OpContext IO) Void -> GLFW.Window -> ReaderT OpContext IO ()
-    go dev ccMap mouseButtonSt rightSt' e@(Event mouseClick) blitToScreen mOut run win = do
-      st <- liftIO $ GLFW.getMouseButton win GLFW.MouseButton'1
-      rightSt <- liftIO $ GLFW.getMouseButton win GLFW.MouseButton'2
-
-      mouseButtonSt' <- case st of
-        GLFW.MouseButtonState'Pressed -> pure True
-        _ -> pure False
-
-      rightSt'' <- case rightSt of
-        GLFW.MouseButtonState'Pressed -> pure True
-        _ -> pure False
-
-      (_, msg) <- liftIO $ RT.getMessage dev
-
-      when (V.length msg >= 3) $ liftIO $ do
-        putStrLn $ "id: " <> show (msg V.! 1) <> ", value: " <> show (msg V.! 2) <> ", ctrl: " <> show (msg V.! 0)
-        atomicModifyIORef' ccMap (\m -> (M.insert (msg V.! 1) (msg V.! 2) m, ()))
-
-      (mOut', next') <- if not frameByFrame || clicked rightSt' rightSt''
-        then do
-          if clicked mouseButtonSt mouseButtonSt'
-            then liftIO $ writeIORef mouseClick (Just ())
-            else pure ()
-
-          (next, rOut) <- unblock run
-
-          liftIO $ writeIORef mouseClick Nothing
-
-          -- [0]
-          (next', rOut') <- unblock next
-
-          let mOut' = asum [rOut' >>= maybeHead, rOut >>= maybeHead, mOut]
-
-          liftIO $ for_ mOut' $ \out -> do
-            outRender out
-            blitToScreen (outTex out)
-
-          pure (mOut', next')
-        else pure (mOut, run)
-
-      liftIO $ GLFW.swapBuffers win
-
-      esc <- liftIO $ GLFW.getKey win GLFW.Key'Escape
-
-      close <- liftIO $ GLFW.windowShouldClose win
-
-      if close || esc == GLFW.KeyState'Pressed
-        then pure ()
-        else do
-          liftIO $ GLFW.pollEvents
-          go dev ccMap mouseButtonSt' rightSt'' e blitToScreen mOut' next' win
+main = run scene

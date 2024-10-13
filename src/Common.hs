@@ -108,6 +108,11 @@ data OpContext = OpContext
 newtype Op a = Op { unOp :: Syn [Out] (ReaderT OpContext IO) a }
   deriving (Functor, Applicative, Monad, Alternative, Semigroup)
 
+on_ :: MonadIO m => EventFilter a -> Syn v (ReaderT OpContext m) a
+on_ e = do
+  ctx <- lift ask
+  ctxOn (ctxEventCtx ctx) e
+
 on :: EventFilter a -> Op a
 on e = Op $ do
   ctx <- lift ask

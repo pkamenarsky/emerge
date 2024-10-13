@@ -78,44 +78,47 @@ toRange mi ma w = mi + (realToFrac w / 127.0 * (ma - mi))
 cc :: SignalContext -> Word8 -> Float -> Float -> Signal Float
 cc ctx ccId i a = fmap (toRange i a) (ccRaw ctx ccId)
 
-loop :: GLFW.Window -> (v -> IO ()) -> (SignalContext -> EventContext -> Syn [v] IO Void) -> IO ()
-loop win render syn = do
-  evtChan <- newIORef []
+signalContext :: GLFW.Window -> IO SignalContext
+signalContext win = do
+  -- MIDI
+  ccMap <- newIORef M.empty
 
-  ccMap <- newIORef mempty :: IO (IORef (M.Map Word8 Word8))
-  dev <- RT.defaultInput
+  dev <- liftIO $ RT.defaultInput
 
   RT.setCallback dev $ \_ msg -> do
-   when (V.length msg >= 3) $ liftIO $ do
-     putStrLn $ "id: " <> show (msg V.! 1) <> ", value: " <> show (msg V.! 2) <> ", ctrl: " <> show (msg V.! 0)
-     atomicModifyIORef' ccMap (\m -> (M.insert (msg V.! 1) (msg V.! 2) m, ()))
+    when (V.length msg >= 3) $ liftIO $ do
+      putStrLn $ "id: " <> show (msg V.! 1) <> ", value: " <> show (msg V.! 2) <> ", ctrl: " <> show (msg V.! 0)
+      atomicModifyIORef' ccMap (\m -> (M.insert (msg V.! 1) (msg V.! 2) m, ()))
 
   RT.openPort dev 1 "syn"
 
-  GLFW.setCursorInputMode win GLFW.CursorInputMode'Disabled
-  GLFW.setMouseButtonCallback win $ Just $ \_ button state modKeys -> modifyIORef' evtChan (InputMouse button state modKeys:)
-  GLFW.setKeyCallback win $ Just $ \_ key scanCode state modKeys -> modifyIORef' evtChan (InputKey key scanCode state modKeys:)
-
-  evtRef <- newIORef Nothing
+  --
 
   t0 <- Time.getSystemTime
 
-  let tf (a, b) = (realToFrac a, realToFrac b)
+  pure $ SignalContext
+    { time = Signal $ do
+        now <- Time.getSystemTime
 
-      sigCtx = SignalContext
-        { time = Signal $ do
-            now <- Time.getSystemTime
+        let s = Time.systemSeconds now - Time.systemSeconds t0
+        let ns = fi (Time.systemNanoseconds now) - fi (Time.systemNanoseconds t0) :: Int64
 
-            let s = Time.systemSeconds now - Time.systemSeconds t0
-            let ns = fi (Time.systemNanoseconds now) - fi (Time.systemNanoseconds t0) :: Int64
+        pure $ Just $ fi s + fi ns / 1000000000
 
-            pure $ Just $ fi s + fi ns / 1000000000
+    , ccRaw = \ccId -> Signal $ readIORef ccMap >>= \m -> pure $ fmap fi $ M.lookup ccId m
+    , mousePos = Signal $ fmap (Just . tf) $ GLFW.getCursorPos win 
+    }
+  where
+    fi :: (Integral a, Num b) => a -> b
+    fi = fromIntegral
 
-        , ccRaw = \ccId -> Signal $ readIORef ccMap >>= \m -> pure $ fmap fromIntegral $ M.lookup ccId m
-        , mousePos = Signal $ fmap (Just . tf) $ GLFW.getCursorPos win 
-        }
+    tf (a, b) = (realToFrac a, realToFrac b)
 
-      evtCtx = EventContext
+eventContext :: IO (IORef (Maybe Input), EventContext)
+eventContext = do
+  evtRef <- newIORef Nothing
+
+  let evtCtx = EventContext
         { ctxOn = \evtFilter -> do
             mEvt <- unsafeNonBlockingIO $ readIORef evtRef
 
@@ -130,8 +133,19 @@ loop win render syn = do
               _ -> blocked $ ctxOn evtCtx evtFilter
         }
 
-      go mOut run = do
-        running <- atomicModifyIORef evtChan nextEvent >>= \case
+  pure (evtRef, evtCtx)
+
+loop :: MonadIO m => GLFW.Window -> IORef (Maybe Input) -> (v -> IO ()) -> Syn [v] m Void -> m ()
+loop win evtRef render syn = do
+  evtChan <- liftIO $ newIORef []
+
+  liftIO $ do
+    GLFW.setCursorInputMode win GLFW.CursorInputMode'Disabled
+    GLFW.setMouseButtonCallback win $ Just $ \_ button state modKeys -> modifyIORef' evtChan (InputMouse button state modKeys:)
+    GLFW.setKeyCallback win $ Just $ \_ key scanCode state modKeys -> modifyIORef' evtChan (InputKey key scanCode state modKeys:)
+
+  let go mOut run = do
+        running <- liftIO $ atomicModifyIORef evtChan nextEvent >>= \case
           Just (InputKey GLFW.Key'Escape _ GLFW.KeyState'Pressed _) -> pure False
           e -> do
             writeIORef evtRef e
@@ -141,25 +155,22 @@ loop win render syn = do
           (next, rOut) <- unblock run
 
           -- [0]
-          writeIORef evtRef Nothing
+          liftIO $ writeIORef evtRef Nothing
           (next', rOut') <- unblock next
 
           let mOut' = asum [rOut' >>= maybeHead, rOut >>= maybeHead, mOut]
 
-          for_ mOut' render
-
           liftIO $ do
+            for_ mOut' render
+
             GLFW.swapBuffers win
             GLFW.pollEvents
 
           go mOut' next'
 
-  go Nothing $ reinterpret (syn sigCtx evtCtx)
+  go Nothing $ reinterpret syn
 
   where
-    fi :: (Integral a, Num b) => a -> b
-    fi = fromIntegral
-
     nextEvent [] = ([], Nothing)
     nextEvent (evt:evts) = (evts, Just evt)
 
