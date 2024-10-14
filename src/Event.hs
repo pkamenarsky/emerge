@@ -13,6 +13,7 @@
 
 module Event where
 
+import Control.Concurrent
 import Control.Monad (when)
 import Control.Monad.IO.Class
 
@@ -183,7 +184,10 @@ loop win evtRef dev ccMap render syn = do
     maybeHead (a:_) = Just a
     maybeHead _ = Nothing
 
-testOSC = do
+-- tidal
+
+forwardOSC :: IO ()
+forwardOSC = do
   t <- openUDP "127.0.0.1" 6010
 
   dev <- RT.defaultInput
@@ -195,5 +199,7 @@ testOSC = do
     when (V.length msg >= 3) $ liftIO $ do
       putStrLn $ "id: " <> show (msg V.! 1) <> ", value: " <> show (msg V.! 2) <> ", ctrl: " <> show (msg V.! 0)
       sendMessage t (Message "/ctrl" [OSC.ASCII_String $ OSC.ascii $ show (msg V.! 1), OSC.float (fromIntegral (msg V.! 2) / 127)])
+
+    threadDelay 10000
   where
     foreverrr m = m >> foreverrr m
