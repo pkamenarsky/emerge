@@ -218,6 +218,8 @@ scene = signals $ \SignalContext {..} -> do
 
 run :: Op Void -> IO ()
 run op = do
+  GLFW.setErrorCallback $ Just $ \e str -> putStrLn $ show e <> ", " <> str
+
   _ <- GLFW.init
 
   GLFW.windowHint $ GLFW.WindowHint'OpenGLDebugContext True
@@ -228,7 +230,7 @@ run op = do
   bracket
     (GLFW.createWindow 1024 1024 "SYN" Nothing Nothing)
     (traverse_ GLFW.destroyWindow)
-    $ \mWin -> do
+    $ \mWin -> handle (print . se) $ do
          GLFW.makeContextCurrent mWin
          GL.debugMessageCallback $= Just dbg
 
@@ -244,6 +246,9 @@ run op = do
   putStrLn "bye..."
 
   where
+    se :: SomeException -> SomeException
+    se = id
+
     render blitToScreen out = do
       outRender out
       blitToScreen (outTex out)

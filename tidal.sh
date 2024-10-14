@@ -1,1 +1,1 @@
-stack repl --ghci-options=-ghci-script tidal.ghci
+stack repl --ghci-options=-ghci-script=tidal.ghci

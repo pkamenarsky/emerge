@@ -27,11 +27,12 @@ dependencies:
 - filepath
 - free
 - GLFW-b
-# - hosc
+- hosc
 # - hsc3
 - http-client
 - JuicyPixels
 - machines
+- network
 - ObjectName
 - OpenGL
 - primitive

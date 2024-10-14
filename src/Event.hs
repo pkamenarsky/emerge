@@ -27,6 +27,11 @@ import qualified Graphics.Rendering.OpenGL as GL
 import qualified Graphics.UI.GLFW as GLFW
 
 import Network.HTTP.Client
+
+import qualified Sound.OSC.Datum as OSC
+import Sound.OSC.Packet
+import Sound.OSC.Transport.FD
+import Sound.OSC.Transport.FD.UDP
 -- import Network.HTTP.Client.MultipartFormData
 
 import Types
@@ -177,3 +182,18 @@ loop win evtRef dev ccMap render syn = do
     maybeHead :: [a] -> Maybe a
     maybeHead (a:_) = Just a
     maybeHead _ = Nothing
+
+testOSC = do
+  t <- openUDP "127.0.0.1" 6010
+
+  dev <- RT.defaultInput
+  RT.openPort dev 1 "syn"
+
+  foreverrr $ do
+    (_, msg) <- liftIO $ RT.getMessage dev
+
+    when (V.length msg >= 3) $ liftIO $ do
+      putStrLn $ "id: " <> show (msg V.! 1) <> ", value: " <> show (msg V.! 2) <> ", ctrl: " <> show (msg V.! 0)
+      sendMessage t (Message "/ctrl" [OSC.ASCII_String $ OSC.ascii $ show (msg V.! 1), OSC.float (fromIntegral (msg V.! 2) / 127)])
+  where
+    foreverrr m = m >> foreverrr m
