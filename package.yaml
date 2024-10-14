@@ -27,8 +27,8 @@ dependencies:
 - filepath
 - free
 - GLFW-b
-- hosc
-- hsc3
+# - hosc
+# - hsc3
 - http-client
 - JuicyPixels
 - machines
@@ -41,6 +41,7 @@ dependencies:
 - stm
 - string-interpolate
 - text
+- tidal
 - transformers
 - vector
 

@@ -1,3 +1,4 @@
+* 16 knob MIDI controller https://intech.studio/bg/shop/en16
 * TODO write `Monoid Out` instance (additive blend)
 * DONE come up with a way to mark "missing" signals (e.g. ccs)
 ** is this not just Signal (Maybe v)?

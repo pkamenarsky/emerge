@@ -315,6 +315,9 @@ softUnion_ params sdfA sdfB = SDF $ \pos -> do
 softUnion :: Applicative m => SoftUnionUniforms -> Syn SDF m a -> Syn SDF m a -> Syn SDF m a
 softUnion params s t = softUnion_ params <$$> s <**> t
 
+softUnions :: Applicative m => SoftUnionUniforms -> [Syn SDF m a] -> Syn SDF m a
+softUnions params = foldl (softUnion params) (view mempty)
+
 --------------------------------------------------------------------------------
 
 data TraceUniforms = TraceUniforms

@@ -54,14 +54,13 @@ library
     , containers
     , filepath
     , free
-    , hosc
-    , hsc3
     , http-client
     , machines
     , primitive
     , stm
     , string-interpolate
     , text
+    , tidal
     , time
     , transformers
     , vector
@@ -90,14 +89,13 @@ executable emerge-exe
     , emerge
     , filepath
     , free
-    , hosc
-    , hsc3
     , http-client
     , machines
     , primitive
     , stm
     , string-interpolate
     , text
+    , tidal
     , time
     , transformers
     , vector
@@ -127,14 +125,13 @@ test-suite emerge-test
     , emerge
     , filepath
     , free
-    , hosc
-    , hsc3
     , http-client
     , machines
     , primitive
     , stm
     , string-interpolate
     , text
+    , tidal
     , time
     , transformers
     , vector

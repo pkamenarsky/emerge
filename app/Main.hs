@@ -48,7 +48,7 @@ import Syn hiding (forever)
 import Syn.Run (Event (Event))
 import qualified Syn.Run as Run
 
-import Sound.Sc3 hiding (blend)
+-- import Sound.Sc3 hiding (blend)
 
 import GHC.Generics
 import GHC.Int
@@ -163,18 +163,18 @@ scene = signals $ \SignalContext {..} -> do
           translate o { vec = vec3 -0.5 offset 0 }
         $ rotate o { axis = right, radians = fmap (\(_, y) -> tf (y / 100)) mousePos }
         $ rotate o { axis = up, radians = fmap (\(x, _) -> tf (x / -100)) mousePos }
-        $ dodecahedron o { radius = (ranged 0.2 0.3 0 1 . abs . sin . (* 7)) <$> time }
+        $ dodecahedron o { radius = (ranged 0.2 0.3 -1 1 . sin . (* 0.5)) <$> time }
 
   let dode2 =
           translate o { vec = vec3 0.5 0 0 }
         $ rotate o { axis = right, radians = fmap (\(_, y) -> tf (y / 200)) mousePos }
         $ rotate o { axis = up, radians = fmap (\(x, _) -> tf (x / -200)) mousePos }
         -- $ dodecahedron o { radius = cc 15 0 1 }
-        $ dodecahedron o { radius = (ranged 0.3 0.5 0 1 . abs . sin . (* 3)) <$> time }
+        $ dodecahedron o { radius = (ranged 0.3 0.5 -1 1 . sin . (* 0.1)) <$> time }
 
   let sphere2 =
           translate o { vec = vec3 0.5 0 0 }
-        $ sphere o { radius = (ranged 0.3 0.5 0 1 . abs . sin . (* 3)) <$> time }
+        $ sphere o { radius = (ranged 0.3 0.5 -1 1 . sin . (* 0.1)) <$> time }
 
   let bounce offset = translate o { vec = vec3 0 offset 0 } $ do
         asum [ dode2, on_ leftDown ]
@@ -190,7 +190,10 @@ scene = signals $ \SignalContext {..} -> do
   grain o { t = (/ 3) <$> time, multiplier = pure 20 }
     $ sdf tr
     $ softUnion_ o { k = cc 16 0.1 10 }
-        <$$> softUnion o { k = pure 0.2 } (dode1 0.4) (dode1 -0.2) 
+        <$$> softUnions o { k = pure 0.2 }
+           [ dode1 ((offset - 2.5) / 5)
+           | offset <- [0..5]
+           ]
         <**> asum [ bounce 0, bounce 0.1, bounce 0.2, on_ middleDown ]
 
   feedback $ \r -> blend o o { factor = pure 0.01 } r $ asum [ blend o o b1 b2, on leftDown ]
@@ -253,11 +256,11 @@ run op = do
 main :: IO ()
 main = run scene
 
-h = withSc3 reset
-
-main2 = withSc3 $ do
-  reset
-  let k = sinOsc kr 10 0 * 100
-
-  play $ out 0 (sinOsc ar (440 + k) 0 * 0.2)
-  play $ out 1 (sinOsc ar 550 0 * 0.3)
+-- h = withSc3 reset
+-- 
+-- main2 = withSc3 $ do
+--   reset
+--   let k = sinOsc kr 10 0 * 100
+-- 
+--   play $ out 0 (sinOsc ar (440 + k) 0 * 0.2)
+--   play $ out 1 (sinOsc ar 550 0 * 0.3)
