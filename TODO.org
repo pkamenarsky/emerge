@@ -1,3 +1,4 @@
+* hardware aesthetic: https://www.youtube.com/watch?v=Ivuy9QYLFVY&t=253s
 * 16 knob MIDI controller https://intech.studio/bg/shop/en16
 * TODO write `Monoid Out` instance (additive blend)
 * DONE come up with a way to mark "missing" signals (e.g. ccs)
