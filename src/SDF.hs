@@ -320,7 +320,7 @@ softUnions params = foldl (softUnion params) (view mempty)
 
 --------------------------------------------------------------------------------
 
-data TraceCommonUniforms = TraceCommonUniforms
+data TraceUniforms = TraceUniforms
   { maxIterations :: Signal GLint
   , fresnelBase :: Signal Float
   , fresnelExp :: Signal Float
@@ -328,8 +328,8 @@ data TraceCommonUniforms = TraceCommonUniforms
   , clearColor :: Signal Color3
   } deriving Generic
 
-instance Default TraceCommonUniforms where
-  def = TraceCommonUniforms
+instance Default TraceUniforms where
+  def = TraceUniforms
     { maxIterations = pure 64
     , fresnelBase = pure 1
     , fresnelExp = pure 5
@@ -337,21 +337,22 @@ instance Default TraceCommonUniforms where
     , clearColor = color3 0 0 0
     }
 
-data TraceUniforms = TraceUniforms
-  { common :: TraceCommonUniforms
-  } deriving Generic
-
-instance Default TraceUniforms where
-  def = TraceUniforms { common = def }
-
 data TraceOrthoUniforms = TraceOrthoUniforms
-  { common :: TraceCommonUniforms
+  { maxIterations :: Signal GLint
+  , fresnelBase :: Signal Float
+  , fresnelExp :: Signal Float
+  , mixFactor :: Signal Float
+  , clearColor :: Signal Color3
   , scale :: Signal Float  -- Controls the zoom level of orthographic view
   } deriving Generic
 
 instance Default TraceOrthoUniforms where
   def = TraceOrthoUniforms
-    { common = def
+    { maxIterations = pure 64
+    , fresnelBase = pure 1
+    , fresnelExp = pure 5
+    , mixFactor = pure 0.5
+    , clearColor = color3 0 0 0
     , scale = pure 1.0
     }
 
@@ -361,7 +362,7 @@ trace
   -> SDFEval
 trace params opts = SDFEval
   { sdfeIncludes = []
-  , sdfeUniforms = paramUniforms (u { spPrefix = "common" })
+  , sdfeUniforms = paramUniforms u
   , sdfeBody = [i|
 vec3 getNormal(vec3 pos) {
   const float eps = 0.0001;
@@ -387,7 +388,7 @@ void main () {
   float tMax = 5.;
 
   for (int i = 0; i < 64; ++i) {
-      if (i >= #{uniform u #common.maxIterations}) break;
+      if (i >= #{uniform u #maxIterations}) break;
 
       vec3 currentPos = camPos + (t * ray);
       float h = sdf(currentPos);
@@ -396,17 +397,17 @@ void main () {
       t += h;
   }
 
-  vec3 color = #{uniform u #common.clearColor};
+  vec3 color = #{uniform u #clearColor};
 
   if (t < tMax) {
     vec3 currentPos = camPos + (t * ray);
     vec3 normal = getNormal(currentPos);
     // float diff = dot(vec3(1.0), normal);
 
-    float fresnel = pow(#{uniform u #common.fresnelBase} + dot(ray, normal), #{uniform u #common.fresnelExp});
+    float fresnel = pow(#{uniform u #fresnelBase} + dot(ray, normal), #{uniform u #fresnelExp});
 
     // color = vec3(dot(ray, normal));
-    color = mix(color, vec3(#{uniform u #common.mixFactor}), fresnel);
+    color = mix(color, vec3(#{uniform u #mixFactor}), fresnel);
   }
 
   gl_FragColor = vec4(color, 1.0);
@@ -450,7 +451,7 @@ void main () {
   float tMax = 5.;
 
   for (int i = 0; i < 64; ++i) {
-      if (i >= #{uniform u #common.maxIterations}) break;
+      if (i >= #{uniform u #maxIterations}) break;
 
       vec3 currentPos = camPos + (t * ray);
       float h = sdf(currentPos);
@@ -459,14 +460,14 @@ void main () {
       t += h;
   }
 
-  vec3 color = #{uniform u #common.clearColor};
+  vec3 color = #{uniform u #clearColor};
 
   if (t < tMax) {
     vec3 currentPos = camPos + (t * ray);
     vec3 normal = getNormal(currentPos);
 
-    float fresnel = pow(#{uniform u #common.fresnelBase} + dot(ray, normal), #{uniform u #common.fresnelExp});
-    color = mix(color, vec3(#{uniform u #common.mixFactor}), fresnel);
+    float fresnel = pow(#{uniform u #fresnelBase} + dot(ray, normal), #{uniform u #fresnelExp});
+    color = mix(color, vec3(#{uniform u #mixFactor}), fresnel);
   }
 
   gl_FragColor = vec4(color, 1.0);
