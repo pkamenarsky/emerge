@@ -178,6 +178,17 @@ dodecahedron_ params = SDF $ \pos -> do
 dodecahedron :: DodecahedronUniforms -> Syn SDF m a
 dodecahedron = view . dodecahedron_
 
+data CylinderUniforms = CylinderUniforms
+  { radius :: Signal Float
+  , height :: Signal Float
+  } deriving Generic
+
+instance Default CylinderUniforms where
+  def = CylinderUniforms
+    { radius = pure 0.5
+    , height = pure 1.0
+    }
+
 data SphereUniforms = SphereUniforms
   { radius :: Signal Float
   } deriving Generic
@@ -206,6 +217,26 @@ sphere_ params = SDF $ \pos -> do
 
 sphere :: SphereUniforms -> Syn SDF m a
 sphere = view . sphere_
+
+cylinder_ :: CylinderUniforms -> SDF
+cylinder_ params = SDF $ \pos -> do
+  prefix <- name <$> genName
+  out <- genName
+
+  let opts = def { spFieldLabelModifier = (T.unpack prefix <>) }
+      (u, setParams) = shaderParams opts params
+
+  W.tell $ pure $ SDFDef
+    { sdfIncludes = ["assets/lygia/sdf/cylinderSDF.glsl"]
+    , sdfUniforms = paramUniforms u
+    , sdfDecls = [("float", out, [i|cylinderSDF(#{name pos}, #{uniform u #radius}, #{uniform u #height})|])]
+    , sdfSetParams = setParams
+    }
+
+  pure out
+
+cylinder :: CylinderUniforms -> Syn SDF m a
+cylinder = view . cylinder_
 
 -- transforms ------------------------------------------------------------------
 
