@@ -319,6 +319,25 @@ union s t = union_ <$$> s <**> t
 unions :: Applicative m => [Syn SDF m a] -> Syn SDF m a
 unions ss = foldl1 union ss
 
+subtract_ :: SDF -> SDF -> SDF
+subtract_ sdfA sdfB = SDF $ \pos -> do
+  pA <- runSDF sdfA pos
+  pB <- runSDF sdfB pos
+
+  newPos <- genName
+
+  W.tell $ pure $ SDFDef
+    { sdfIncludes = []
+    , sdfUniforms = []
+    , sdfDecls = [("float", newPos, [i|max(#{name pA}, -#{name pB})|])]
+    , sdfSetParams = \_ -> pure (pure ())
+    }
+
+  pure newPos
+
+subtract :: Applicative m => Syn SDF m a -> Syn SDF m a -> Syn SDF m a
+subtract s t = subtract_ <$$> s <**> t
+
 data SoftUnionUniforms = SoftUnionUniforms
   { k :: Signal Float
   } deriving Generic
