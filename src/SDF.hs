@@ -419,6 +419,66 @@ void main () {
 
     (u, setParams) = shaderParams o params
 
+traceOrtho
+  :: TraceOrthoUniforms
+  -> OpOptions
+  -> SDFEval
+traceOrtho params opts = SDFEval
+  { sdfeIncludes = []
+  , sdfeUniforms = paramUniforms u
+  , sdfeBody = [i|
+vec3 getNormal(vec3 pos) {
+  const float eps = 0.0001;
+  const vec2 h = vec2(1., -1.);
+
+  return normalize(
+    h.xyy * sdf(pos + h.xyy * eps) +
+    h.yyx * sdf(pos + h.yyx * eps) +
+    h.yxy * sdf(pos + h.yxy * eps) +
+    h.xxx * sdf(pos + h.xxx * eps));
+}
+
+void main () {
+  vec2 uv = gl_FragCoord.xy / #{resVec2 opts};
+  vec2 pos = (uv - 0.5) * #{uniform u #scale};
+  pos.x *= #{aspectRatio};
+
+  vec3 camPos = vec3(pos.x, pos.y, 2.0);
+  vec3 ray = vec3(0.0, 0.0, -1.0); // Parallel rays for orthographic projection
+
+  float t = 0.;
+  float tMax = 5.;
+
+  for (int i = 0; i < 64; ++i) {
+      if (i >= #{uniform u #common.maxIterations}) break;
+
+      vec3 currentPos = camPos + (t * ray);
+      float h = sdf(currentPos);
+
+      if (h < 0.0001 || t > tMax) break;
+      t += h;
+  }
+
+  vec3 color = #{uniform u #common.clearColor};
+
+  if (t < tMax) {
+    vec3 currentPos = camPos + (t * ray);
+    vec3 normal = getNormal(currentPos);
+
+    float fresnel = pow(#{uniform u #common.fresnelBase} + dot(ray, normal), #{uniform u #common.fresnelExp});
+    color = mix(color, vec3(#{uniform u #common.mixFactor}), fresnel);
+  }
+
+  gl_FragColor = vec4(color, 1.0);
+} |]
+  , sdfeSetParams = setParams
+  }
+  where
+    aspectRatio :: Float
+    aspectRatio = fi (opWidth opts) / fi (opHeight opts)
+
+    (u, setParams) = shaderParams o params
+
 --------------------------------------------------------------------------------
 
 compile :: SDFEval -> SDF -> (Text, GL.Program -> IO (IO ()))
