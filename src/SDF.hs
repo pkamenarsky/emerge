@@ -285,6 +285,9 @@ union_ sdfA sdfB = SDF $ \pos -> do
 union :: Applicative m => Syn SDF m a -> Syn SDF m a -> Syn SDF m a
 union s t = union_ <$$> s <**> t
 
+unions :: Applicative m => [Syn SDF m a] -> Syn SDF m a
+unions ss = foldl1 union ss
+
 data SoftUnionUniforms = SoftUnionUniforms
   { k :: Signal Float
   } deriving Generic
@@ -325,7 +328,9 @@ data TraceUniforms = TraceUniforms
   , fresnelBase :: Signal Float
   , fresnelExp :: Signal Float
   , mixFactor :: Signal Float
+  , baseColor :: Signal Color3
   , clearColor :: Signal Color3
+  , maxDistance :: Signal Float
   } deriving Generic
 
 instance Default TraceUniforms where
@@ -334,7 +339,9 @@ instance Default TraceUniforms where
     , fresnelBase = pure 1
     , fresnelExp = pure 5
     , mixFactor = pure 0.5
+    , baseColor = color3 0 0 0
     , clearColor = color3 0 0 0
+    , maxDistance = pure 5
     }
 
 data TraceOrthoUniforms = TraceOrthoUniforms
@@ -342,7 +349,9 @@ data TraceOrthoUniforms = TraceOrthoUniforms
   , fresnelBase :: Signal Float
   , fresnelExp :: Signal Float
   , mixFactor :: Signal Float
+  , baseColor :: Signal Color3
   , clearColor :: Signal Color3
+  , maxDistance :: Signal Float
   , scale :: Signal Float  -- Controls the zoom level of orthographic view
   } deriving Generic
 
@@ -352,7 +361,9 @@ instance Default TraceOrthoUniforms where
     , fresnelBase = pure 1
     , fresnelExp = pure 5
     , mixFactor = pure 0.5
+    , baseColor = color3 0 0 0
     , clearColor = color3 0 0 0
+    , maxDistance = pure 5
     , scale = pure 1.0
     }
 
@@ -385,7 +396,6 @@ void main () {
   vec3 ray = normalize(vec3(pos, -1.));
 
   float t = 0.;
-  float tMax = 5.;
 
   for (int i = 0; i < 64; ++i) {
       if (i >= #{uniform u #maxIterations}) break;
@@ -393,13 +403,13 @@ void main () {
       vec3 currentPos = camPos + (t * ray);
       float h = sdf(currentPos);
 
-      if (h < 0.0001 || t > tMax) break;
+      if (h < 0.0001 || t > #{uniform u #maxDistance}) break;
       t += h;
   }
 
   vec3 color = #{uniform u #clearColor};
 
-  if (t < tMax) {
+  if (t < #{uniform u #maxDistance}) {
     vec3 currentPos = camPos + (t * ray);
     vec3 normal = getNormal(currentPos);
     // float diff = dot(vec3(1.0), normal);
@@ -407,7 +417,7 @@ void main () {
     float fresnel = pow(#{uniform u #fresnelBase} + dot(ray, normal), #{uniform u #fresnelExp});
 
     // color = vec3(dot(ray, normal));
-    color = mix(color, vec3(#{uniform u #mixFactor}), fresnel);
+    color = mix(#{uniform u #baseColor}, vec3(#{uniform u #mixFactor}), fresnel);
   }
 
   gl_FragColor = vec4(color, 1.0);
@@ -448,7 +458,6 @@ void main () {
   vec3 ray = vec3(0.0, 0.0, -1.0); // Parallel rays for orthographic projection
 
   float t = 0.;
-  float tMax = 5.;
 
   for (int i = 0; i < 64; ++i) {
       if (i >= #{uniform u #maxIterations}) break;
@@ -456,18 +465,18 @@ void main () {
       vec3 currentPos = camPos + (t * ray);
       float h = sdf(currentPos);
 
-      if (h < 0.0001 || t > tMax) break;
+      if (h < 0.0001 || t > #{uniform u #maxDistance}) break;
       t += h;
   }
 
   vec3 color = #{uniform u #clearColor};
 
-  if (t < tMax) {
+  if (t < #{uniform u #maxDistance}) {
     vec3 currentPos = camPos + (t * ray);
     vec3 normal = getNormal(currentPos);
 
     float fresnel = pow(#{uniform u #fresnelBase} + dot(ray, normal), #{uniform u #fresnelExp});
-    color = mix(color, vec3(#{uniform u #mixFactor}), fresnel);
+    color = mix(#{uniform u #baseColor}, vec3(#{uniform u #mixFactor}), fresnel);
   }
 
   gl_FragColor = vec4(color, 1.0);
