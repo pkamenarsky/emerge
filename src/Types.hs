@@ -218,6 +218,9 @@ forward = vec3 0 0 1
 backward :: Signal Vec3
 backward = vec3 0 0 (-1)
 
+degrees :: Floating a => a -> a
+degrees d = d * pi / 180
+
 --------------------------------------------------------------------------------
 
 data TexUniform (n :: Nat) = TexUniform (Maybe GL.TextureObject)

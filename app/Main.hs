@@ -13,6 +13,7 @@
 module Main (main) where
 
 import Control.Applicative hiding ((<**>))
+import Control.Concurrent
 import Control.Exception
 import Control.Monad (forever, when, void)
 import Control.Monad.IO.Class
@@ -55,6 +56,20 @@ import GHC.Int
 import GHC.Word
 
 import qualified Sound.RtMidi as RT
+import Sound.SC3 hiding (blend)
+import qualified Sound.SC3.FD as FD
+import Sound.SC3.UGen
+import Sound.SC3.UGen.Bindings
+import Sound.SC3.Server.Command
+import qualified Sound.SC3.Server.Transport.FD as FD
+import qualified Sound.OSC.Transport.FD as FD
+import qualified Sound.OSC.Transport.FD.UDP as FD
+import Sound.OSC.Datum
+import Sound.OSC.Packet
+
+import Sound.Tidal.Pattern
+import qualified Sound.Tidal.Core as T
+import qualified Sound.Tidal.Pattern as T
 
 import Debug.Trace (traceIO)
 
@@ -152,6 +167,21 @@ void main() {
 
 --------------------------------------------------------------------------------
 
+pat1 :: Pattern Int
+pat1 = T.fromList [1, 2, 3]
+
+pat2 :: Pattern Int
+pat2 = T.fromList [4, 5, 6]
+
+-- patternToSig :: Pattern a -> Signal a
+patternToSig p = getA <$> events
+  where
+    arc :: Arc
+    arc = Arc 0 10
+
+    getA (T.Event _ctx whole part a) = a
+    events = queryArc p arc
+
 scene :: Op a
 scene = signals $ \SignalContext {..} -> do
   let cc ccId s e = fmap (toRange s e) (ccRaw ccId)
@@ -187,6 +217,7 @@ scene = signals $ \SignalContext {..} -> do
         tr
         
   -- feedback $ \r -> blend o o { factor = pure 0.05 } r $ grain o { t = (/ 3) <$> time, multiplier = pure 20 }
+
   grain o { t = (/ 3) <$> time, multiplier = pure 20 }
     $ sdf tr
     $ softUnion_ o { k = cc 16 0.1 10 }
@@ -269,3 +300,53 @@ main = run scene
 -- 
 --   play $ out 0 (sinOsc ar (440 + k) 0 * 0.2)
 --   play $ out 1 (sinOsc ar 550 0 * 0.3)
+
+
+-- -- Define the number of oscillators for Shepard tone (e.g., 10 sine waves spaced by octaves)
+-- numOscillators :: Int
+-- numOscillators = 10
+
+synthDefs = FD.withSC3 $ \fd -> do
+  FD.async fd (d_recv sawSynth)
+  -- FD.playSynthdef 1000 fd sawSynth2
+  -- FD.play fd $ out 0 $ saw AR 440 * 0.6
+
+synthDefs3 = withSC3 $ do
+  r <- async (d_recv sawSynth)
+  liftIO $ print r
+
+  fd <- liftIO $ FD.openUDP "127.0.0.1" 57120
+  liftIO $ FD.sendMessage fd $ (message "/dirt/add_synth" [ASCII_String $ ascii "saw_wave"])
+
+  liftIO $ threadDelay 10000000000
+  -- play $ out 0 $ saw AR 440 * 0.6
+
+synthDefs4 = do
+  fd <- FD.openUDP "127.0.0.1" 57120
+  FD.sendMessage fd $ (message "/dirt/lalala" [])
+  -- threadDelay 100000000000
+  where
+
+sawSynth2 :: Synthdef
+sawSynth2 = synthdef "saw_wave"
+  $ out 0
+  $ saw AR 440 * 0.1
+
+sawSynth :: Synthdef
+sawSynth = synthdef "saw_wave"
+  $ out 0
+  $ pan2 (pulse AR (control KR "freq" 440) 0.8 * (control KR "amp" 0.1)) (control KR "pan" 0) 1
+
+synthDefs' = do
+  fd <- FD.openUDP "127.0.0.1" 57110
+  FD.async fd (d_recv sawSynth)
+  -- threadDelay 100000000000
+  where
+
+testSC3 = FD.withSC3 $ \fd -> do
+    -- Send a simple status message to check if the server is alive
+    FD.async fd $ (message "/status" [])
+
+sc3 :: IO ()
+sc3 = withSC3 $ do
+  play $ out 0 $ sinOsc AR 440 0 * 1

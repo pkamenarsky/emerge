@@ -28,7 +28,7 @@ dependencies:
 - free
 - GLFW-b
 - hosc
-# - hsc3
+- hsc3
 - http-client
 - JuicyPixels
 - machines

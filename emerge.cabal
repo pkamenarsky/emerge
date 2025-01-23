@@ -55,6 +55,7 @@ library
     , filepath
     , free
     , hosc
+    , hsc3
     , http-client
     , machines
     , network
@@ -71,6 +72,7 @@ library
 executable emerge-exe
   main-is: Main.hs
   other-modules:
+      World1
       Paths_emerge
   autogen-modules:
       Paths_emerge
@@ -92,6 +94,7 @@ executable emerge-exe
     , filepath
     , free
     , hosc
+    , hsc3
     , http-client
     , machines
     , network
@@ -130,6 +133,7 @@ test-suite emerge-test
     , filepath
     , free
     , hosc
+    , hsc3
     , http-client
     , machines
     , network

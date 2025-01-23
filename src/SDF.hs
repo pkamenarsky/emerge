@@ -229,7 +229,7 @@ cylinder_ params = SDF $ \pos -> do
   W.tell $ pure $ SDFDef
     { sdfIncludes = ["assets/lygia/sdf/cylinderSDF.glsl"]
     , sdfUniforms = paramUniforms u
-    , sdfDecls = [("float", out, [i|cylinderSDF(#{name pos}, #{uniform u #height}, #{uniform u #radius})|])]
+    , sdfDecls = [("float", out, [i|cylinderSDF(#{name pos}, #{uniform u #radius}, #{uniform u #height})|])]
     , sdfSetParams = setParams
     }
 

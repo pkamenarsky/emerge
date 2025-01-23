@@ -41,8 +41,8 @@ packages:
 #
 extra-deps:
  - RtMidi-0.8.0.0
-# - hsc3-0.20
-# - hosc-0.20
+ - hsc3-0.19.1
+ - hosc-0.19.1
 
 allow-newer: True
 
